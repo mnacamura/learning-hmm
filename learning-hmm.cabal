@@ -7,11 +7,11 @@ description:         Yet another library for hidden Markov models
 category:            Algorithms, Machine Learning, Statistics
 
 author:              Mitsuhiro Nakamura
-copyright:           Copyright (c) 2014 Mitsuhiro Nakamura
 maintainer:          Mitsuhiro Nakamura <m.nacamura@gmail.com>
+copyright:           Copyright (c) 2014 Mitsuhiro Nakamura
 license:             MIT
 license-file:        LICENSE
-homepage:            https://bitbucket.org/mnacamura/hmm-learning
+homepage:            https://github.com/mnacamura/learning-hmm
 
 cabal-version:       >=1.10
 build-type:          Simple
