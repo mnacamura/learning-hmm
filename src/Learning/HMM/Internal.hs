@@ -82,14 +82,14 @@ viterbi' model xs = (path, likelihood)
     -- Here we assumed that
     n = V.length xs
 
--- | Perform the Baum-Welch EM algorithm steps iteratively and return
+-- | Perform the Baum-Welch algorithm steps iteratively and return
 --   a list of updated 'HMM'' parameters and their corresponding likelihoods.
 baumWelch' :: (Eq s, Eq o) => HMM' s o -> Vector o -> [(HMM' s o, Likelihood)]
 baumWelch' model xs = zip ms $ tail ells
   where
     (ms, ells) = unzip $ iterate ((`baumWelch1'` xs) . fst) (model, undefined)
 
--- | Perform one step of the Baum-Welch EM algorithm and return the updated
+-- | Perform one step of the Baum-Welch algorithm and return the updated
 --   'HMM'' parameters and the likelihood of the old parameters.
 baumWelch1' :: (Eq s, Eq o) => HMM' s o -> Vector o -> (HMM' s o, Likelihood)
 baumWelch1' model xs = (model', likelihood)

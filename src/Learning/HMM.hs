@@ -87,7 +87,7 @@ viterbi model xs =
     model' = toHMM' model
     xs'    = V.fromList xs
 
--- | Perform the Baum-Welch EM algorithm steps iteratively and return
+-- | Perform the Baum-Welch algorithm steps iteratively and return
 --   a list of updated 'HMM' parameters and their corresponding log
 --   likelihoods.
 baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
