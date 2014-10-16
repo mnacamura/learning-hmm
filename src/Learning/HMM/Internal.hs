@@ -42,8 +42,8 @@ data HMM' s o = HMM' { states'           :: Vector s
 viterbi' :: Eq o => HMM' s o -> Vector o -> (Vector s, Likelihood)
 viterbi' model xs = (path, likelihood)
   where
-    n = V.length xs
-
+    -- The following procedure is based on
+    -- http://ibisforest.org/index.php?cmd=read&page=Viterbi%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0&word=Viterbi
     path = V.map (ss !) $ runST $ do
       ix <- M.new n
       ix `M.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
@@ -79,6 +79,9 @@ viterbi' model xs = (path, likelihood)
         w'   = V.transpose $ transitionDist' model
         phi' = emissionDistT' model
 
+    -- Here we assumed that
+    n = V.length xs
+
 -- | Perform the Baum-Welch EM algorithm steps iteratively and return
 --   a list of updated 'HMM'' parameters and their corresponding likelihoods.
 baumWelch' :: (Eq s, Eq o) => HMM' s o -> Vector o -> [(HMM' s o, Likelihood)]
@@ -91,12 +94,10 @@ baumWelch' model xs = zip ms $ tail ells
 baumWelch1' :: (Eq s, Eq o) => HMM' s o -> Vector o -> (HMM' s o, Likelihood)
 baumWelch1' model xs = (model', likelihood)
   where
-    model' = HMM' { states'           = ss
-                  , outputs'          = os
-                  , initialStateDist' = pi0
-                  , transitionDist'   = w
-                  , emissionDistT'    = phi'
-                  }
+    model' = model { initialStateDist' = pi0
+                   , transitionDist'   = w
+                   , emissionDistT'    = phi'
+                   }
     likelihood = V.last ells
 
     -- First, we calculate the alpha and beta values using the
@@ -123,8 +124,6 @@ baumWelch1' model xs = (model', likelihood)
     -- Using the gamma and xi values, we finally obtain the optimal initial
     -- state probability vector, transition probability matrix, and
     -- emission probability matrix.
-    ss   = states' model
-    os   = outputs' model
     pi0  = let gs = gammas ! 0
            in gs >/ V.sum gs
     w    = let ws = V.foldl1' (#+#) xis
@@ -134,6 +133,9 @@ baumWelch1' model xs = (model', likelihood)
                phis  = V.foldl1' (>+>) . gs'
                zs    = V.foldl1' (>+>) gammas
            in V.map (\o -> phis o >/> zs) os
+
+    -- Here we assumed that
+    os = outputs' model
 
 -- | Baum-Welch forward algorithm that generates α values
 forward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)

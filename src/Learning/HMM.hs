@@ -67,14 +67,14 @@ new ss os = HMM { states           = ss
                 }
   where
     pi0 = C.fromWeightedList [(1, s) | s <- ss]
-    w s | s `notElem` ss = C.fromList []
-        | otherwise      = C.fromList [(p s', s') | s' <- ss]
+    w s | s `elem` ss = C.fromList [(p s', s') | s' <- ss]
+        | otherwise   = C.fromList []
       where
         k = genericLength ss
         p s' | s' == s   = 1/2 * (1 + 1/k)
              | otherwise = 1/2 / k
-    phi s | s `notElem` ss = C.fromList []
-          | otherwise      = C.fromWeightedList [(1, o) | o <- os]
+    phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
+          | otherwise   = C.fromList []
 
 -- | Perform the Viterbi algorithm and return the most likely state path
 --   and its log likelihood.
