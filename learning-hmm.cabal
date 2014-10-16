@@ -3,7 +3,9 @@ version:             0.1.0.0
 stability:           experimental
 
 synopsis:            Yet another library for hidden Markov models
-description:         Yet another library for hidden Markov models
+description:         This library provides functions for the maximum likelihood
+                     estimation of discrete hidden Markov models. At present,
+                     only Baum-Welch and Viterbi algorithms are implemented.
 category:            Algorithms, Machine Learning, Statistics
 
 author:              Mitsuhiro Nakamura
