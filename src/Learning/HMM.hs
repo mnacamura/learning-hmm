@@ -27,7 +27,7 @@ type LogLikelihood = Double
 data HMM s o = HMM { states  :: [s] -- ^ Hidden states
                    , outputs :: [o] -- ^ Observed outputs
                    , initialStateDist :: Categorical Double s
-                     -- ^ Categorical distribusion of initial states
+                     -- ^ Categorical distribution of initial states
                    , transitionDist :: s -> Categorical Double s
                      -- ^ Categorical distribution of next states
                      --   conditioned by the previous states
@@ -143,7 +143,7 @@ fromHMM' hmm' = HMM { states           = V.toList ss
     w' i   = V.toList $ V.map (first fromLogFloat) $ V.zip (w ! i) ss
     phi' i = V.toList $ V.map (first fromLogFloat) $ V.zip (phi ! i) os
 
--- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transisionDist'',
+-- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.
 toHMM' :: (Eq s, Eq o) => HMM s o -> HMM' s o
 toHMM' hmm = HMM' { states'           = V.fromList ss
