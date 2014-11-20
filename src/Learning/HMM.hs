@@ -60,8 +60,8 @@ showHMM hmm = "HMM {states = "           ++ show ss
     w   = transitionDist hmm
     phi = emissionDist hmm
 
--- | Return a model from the given states and outputs. The
---   'initialStateDist' and 'emissionDist' are set to be uniform
+-- | @new states outputs@ returns a model from the @states@ and @outputs@.
+--   The 'initialStateDist' and 'emissionDist' are set to be uniform
 --   distributions. The 'transitionDist' is specified as follows: with
 --   probability 1/2, move to the same state, otherwise, move to a random
 --   state (which might be the same state).
@@ -86,21 +86,24 @@ new ss os = HMM { states           = ss
     phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
           | otherwise   = C.fromList []
 
--- | Return a uniformly distributed random variable of models.
+-- | @init states outputs@ returns a random variable of the model with
+--   @states@ and @outputs@, wherein parameters are sampled from uniform
+--   distributions.
 init :: (Ord s, Ord o) => [s] -> [o] -> RVar (HMM s o)
 init ss os = do hmm' <- init' (V.fromList ss) (V.fromList os)
                 return $ fromHMM' hmm'
 
--- | Return a model in which the 'emissionDist' is updated by using the
---   observed outputs. The 'emissionDist' is set to be normalized histograms
---   each of which is calculated from a partial set of observed outputs for
---   each state. The partition is based on the most likely state path
---   determined by the Viterbi algorithm.
+-- | @model \`withEmission\` xs@ returns a model in which the
+--   'emissionDist' is updated by using the observed outputs @xs@. The
+--   'emissionDist' is set to be normalized histograms each of which is
+--   calculated from a partial set of @xs@ for each state. The partition is
+--   based on the most likely state path obtained by the Viterbi algorithm.
 withEmission :: (Ord s, Ord o) => HMM s o -> [o] -> HMM s o
 withEmission model xs = fromHMM' $ withEmission' (toHMM' model) (V.fromList xs)
 
--- | Perform the Viterbi algorithm and return the most likely state path
---   and its log likelihood.
+-- | @viterbi model xs@ performs the Viterbi algorithm using the observed
+--   outputs @xs@, and returns the most likely state path and its log
+--   likelihood.
 viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
@@ -110,8 +113,9 @@ viterbi model xs =
     model' = toHMM' model
     xs'    = V.fromList xs
 
--- | Perform the Baum-Welch algorithm steps iteratively and return a list
---   of updated models and their corresponding log likelihoods.
+-- | @baumWelch model xs@ performs the Baum-Welch algorithm using the
+--   observed outputs @xs@, and iteratively returns a list of updated
+--   models and their corresponding log likelihoods.
 baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
@@ -122,7 +126,7 @@ baumWelch model xs =
     xs'    = V.fromList xs
 
 -- | @simulate model t@ generates a Markov process of length @t@ using the
---   @model@ and return its state path and observed outputs.
+--   @model@, and returns its state path and observed outputs.
 simulate :: HMM s o -> Int -> RVar ([s], [o])
 simulate model step | step < 1  = return ([], [])
                     | otherwise = do s0 <- sample $ rvar pi0
