@@ -25,6 +25,7 @@ source-repository head
 library
   exposed-modules:   Learning.HMM
   other-modules:     Data.Random.Distribution.Categorical.Util
+                   , Data.Random.Distribution.Simplex
                    , Data.Random.Distribution.Uniform.Util
                    , Data.Vector.Util
                    , Data.Vector.Util.LinearAlgebra
