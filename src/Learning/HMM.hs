@@ -62,6 +62,9 @@ showHMM hmm = "HMM {states = "           ++ show ss
 --   distributions. The 'transitionDist' is specified as follows: with
 --   probability 1/2, move to the same state, otherwise, move to a random
 --   state (which might be the same state).
+--
+--   >>> new [1, 2 :: Int] ['C', 'D']
+--   HMM {states = [1,2], outputs = "CD", initialStateDist = fromList [(0.5,1),(0.5,2)], transitionDist = [(fromList [(0.75,1),(0.25,2)],1),(fromList [(0.25,1),(0.75,2)],2)], emissionDist = [(fromList [(0.5,'C'),(0.5,'D')],1),(fromList [(0.5,'C'),(0.5,'D')],2)]}
 new :: (Ord s, Ord o) => [s] -> [o] -> HMM s o
 new ss os = HMM { states           = ss
                 , outputs          = os
