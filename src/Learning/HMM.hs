@@ -6,17 +6,20 @@ module Learning.HMM (
   , withEmission
   , viterbi
   , baumWelch
+  , simulate
   ) where
 
 import Prelude hiding (init)
+import Control.Applicative ((<$>))
 import Control.Arrow ((***), first)
-import Data.Random.Distribution (pdf)
+import Data.Random.Distribution (pdf, rvar)
 import Data.Random.Distribution.Categorical (Categorical)
 import qualified Data.Random.Distribution.Categorical as C (
     fromList, fromWeightedList, normalizeCategoricalPs
   )
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
+import Data.Random.Sample (sample)
 import Data.List (genericLength)
 import Data.Number.LogFloat (fromLogFloat, logFloat, logFromLogFloat)
 import Data.Vector ((!))
@@ -117,6 +120,22 @@ baumWelch model xs =
   where
     model' = toHMM' model
     xs'    = V.fromList xs
+
+-- | @simulate model t@ generates a Markov process of length @t@ using the
+--   @model@ and return its state path and observed outputs.
+simulate :: HMM s o -> Int -> RVar ([s], [o])
+simulate model step | step < 1  = return ([], [])
+                    | otherwise = do s0 <- sample $ rvar pi0
+                                     x0 <- sample $ rvar $ phi s0
+                                     unzip . ((s0, x0) :) <$> sim s0 (step - 1)
+  where
+    sim _ 0 = return []
+    sim s t = do s' <- sample $ rvar $ w s
+                 x' <- sample $ rvar $ phi s
+                 ((s', x') :) <$> sim s' (t - 1)
+    pi0 = initialStateDist model
+    w   = transitionDist model
+    phi = emissionDist model
 
 -- | Check if the model is valid in the sense of whether the 'states' and
 --   'outputs' are not empty.
