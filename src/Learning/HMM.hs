@@ -2,10 +2,13 @@ module Learning.HMM (
     HMM (..)
   , LogLikelihood
   , new
+  , init
+  , withEmission
   , viterbi
   , baumWelch
   ) where
 
+import Prelude hiding (init)
 import Control.Arrow ((***), first)
 import Data.Random.Distribution (pdf)
 import Data.Random.Distribution.Categorical (Categorical)
@@ -13,6 +16,7 @@ import qualified Data.Random.Distribution.Categorical as C (
     fromList, fromWeightedList, normalizeCategoricalPs
   )
 import Data.Random.Distribution.Categorical.Util ()
+import Data.Random.RVar (RVar)
 import Data.List (genericLength)
 import Data.Number.LogFloat (fromLogFloat, logFloat, logFromLogFloat)
 import Data.Vector ((!))
@@ -75,6 +79,16 @@ new ss os = HMM { states           = ss
              | otherwise = 1/2 / k
     phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
           | otherwise   = C.fromList []
+
+-- | Return a uniformly distributed random model.
+init :: (Ord s, Ord o) => [s] -> [o] -> RVar (HMM s o)
+init ss os = do hmm' <- init' (V.fromList ss) (V.fromList os)
+                return $ fromHMM' hmm'
+
+-- | Return a model in which the emission distribution is updated by using
+--   the given output data.
+withEmission :: (Ord s, Ord o) => HMM s o -> [o] -> HMM s o
+withEmission model xs = fromHMM' $ withEmission' (toHMM' model) (V.fromList xs)
 
 -- | Perform the Viterbi algorithm and return the most likely state path
 --   and its log likelihood.

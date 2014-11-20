@@ -2,6 +2,8 @@ module Learning.HMM.Internal (
     HMM' (..)
   , Likelihood
   , Probability
+  , init'
+  , withEmission'
   , viterbi'
   , baumWelch'
   -- , baumWelch1'
@@ -9,15 +11,20 @@ module Learning.HMM.Internal (
   -- , backward'
   ) where
 
-import Control.Monad (forM_)
+import Control.Applicative ((<$>))
+import Control.Monad (forM_, replicateM)
 import Control.Monad.ST (runST)
+import qualified Data.Map.Strict as M (empty, insertWith, findWithDefault)
 import Data.Number.LogFloat (LogFloat, logFloat)
+import Data.Random.RVar (RVar)
+import Data.Random.Distribution.Simplex (stdSimplex)
+import Data.Random.Distribution.Uniform.Util ()
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V (
-    filter, foldl1', freeze, last, length, map, maximum, maxIndex
-  , replicate, sum , tail, zip , zipWith, zipWith3, zipWith4
+    filter, foldl', foldl1', freeze, fromList, last, length, map, maximum
+  , maxIndex, replicate, sum, tail, zip, zipWith, zipWith3, zipWith4
   )
-import qualified Data.Vector.Mutable as M (new, read, write)
+import qualified Data.Vector.Mutable as MV (new, read, write)
 import qualified Data.Vector.Util as V (unsafeElemIndex)
 import Data.Vector.Util.LinearAlgebra (
     (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#/), (<.>), (#.>), (<.#)
@@ -37,6 +44,33 @@ data HMM' s o = HMM' { states'           :: Vector s
                      , emissionDistT'    :: Vector (Vector Probability)
                      }
 
+-- | Return a uniformly distributed random model.
+init' :: Vector s -> Vector o -> RVar (HMM' s o)
+init' ss os = do
+  let n = V.length ss
+      m = V.length os
+  pi0 <- V.fromList <$> stdSimplex (n-1)
+  w   <- V.fromList <$> replicateM n (V.fromList <$> stdSimplex (n-1))
+  phi <- V.fromList <$> replicateM n (V.fromList <$> stdSimplex (m-1))
+  return HMM' { states'           = ss
+              , outputs'          = os
+              , initialStateDist' = pi0
+              , transitionDist'   = w
+              , emissionDistT'    = V.transpose phi
+              }
+
+-- | Return a model in which the emission distribution is updated by using
+-- the given output data.
+withEmission' :: (Ord s, Ord o) => HMM' s o -> Vector o -> HMM' s o
+withEmission' model xs = model { emissionDistT' = phi' }
+  where
+    ss = states' model
+    os = outputs' model
+    (path, _) = viterbi' model xs
+    mp    = V.foldl' (\m k -> M.insertWith (+) k 1 m) M.empty $ V.zip path xs
+    hists = V.map (\s -> V.map (\o -> M.findWithDefault 0 (s, o) mp) os) ss
+    phi'  = V.transpose $ V.map (\h -> h >/ V.sum h) hists
+
 -- | Perform the Viterbi algorithm and return the most likely state path
 --   and its likelihood.
 viterbi' :: Eq o => HMM' s o -> Vector o -> (Vector s, Likelihood)
@@ -45,11 +79,11 @@ viterbi' model xs = (path, likelihood)
     -- The following procedure is based on
     -- http://ibisforest.org/index.php?cmd=read&page=Viterbi%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0&word=Viterbi
     path = V.map (ss !) $ runST $ do
-      ix <- M.new n
-      ix `M.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
+      ix <- MV.new n
+      ix `MV.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
       forM_ (reverse [0..(n-2)]) $ \i -> do
-        j <- ix `M.read` (i+1)
-        ix `M.write` i $ psis ! (i+1) ! j
+        j <- ix `MV.read` (i+1)
+        ix `MV.write` i $ psis ! (i+1) ! j
       V.freeze ix
       where
         ss = states' model
@@ -58,15 +92,15 @@ viterbi' model xs = (path, likelihood)
     deltas :: Vector (Vector Probability)
     psis   :: Vector (Vector Int)
     (deltas, psis) = runST $ do
-      ds <- M.new n
-      ps <- M.new n
-      ds `M.write` 0 $ (phi' ! x 0) >.> pi0
-      ps `M.write` 0 $ V.replicate k (0 :: Int)
+      ds <- MV.new n
+      ps <- MV.new n
+      ds `MV.write` 0 $ (phi' ! x 0) >.> pi0
+      ps `MV.write` 0 $ V.replicate k (0 :: Int)
       forM_ [1..(n-1)] $ \i -> do
-        d <- ds `M.read` (i-1)
+        d <- ds `MV.read` (i-1)
         let dws = V.map (d >.>) w'
-        ds `M.write` i $ phi' ! x i >.> V.map V.maximum dws
-        ps `M.write` i $ V.map V.maxIndex dws
+        ds `MV.write` i $ phi' ! x i >.> V.map V.maximum dws
+        ps `MV.write` i $ V.map V.maxIndex dws
       ds' <- V.freeze ds
       ps' <- V.freeze ps
       return (ds', ps')
@@ -140,11 +174,11 @@ baumWelch1' model xs = (model', likelihood)
 -- | Baum-Welch forward algorithm that generates α values
 forward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 forward' model xs = runST $ do
-  v <- M.new n
-  v `M.write` 0 $ (phi' ! x 0) >.> pi0
+  v <- MV.new n
+  v `MV.write` 0 $ (phi' ! x 0) >.> pi0
   forM_ [1..(n-1)] $ \i -> do
-    a <- v `M.read` (i-1)
-    v `M.write` i $ (phi' ! x i) >.> (a <.# w)
+    a <- v `MV.read` (i-1)
+    v `MV.write` i $ (phi' ! x i) >.> (a <.# w)
   V.freeze v
   where
     n   = V.length xs
@@ -158,11 +192,11 @@ forward' model xs = runST $ do
 -- | Baum-Welch backward algorithm that generates β values
 backward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 backward' model xs = runST $ do
-  v <- M.new n
-  v `M.write` (n-1) $ V.replicate k $ logFloat (1 :: Double)
+  v <- MV.new n
+  v `MV.write` (n-1) $ V.replicate k $ logFloat (1 :: Double)
   forM_ (reverse [0..(n-2)]) $ \i -> do
-    b <- v `M.read` (i+1)
-    v `M.write` i $ w #.> ((phi' ! x (i+1)) >.> b)
+    b <- v `MV.read` (i+1)
+    v `MV.write` i $ w #.> ((phi' ! x (i+1)) >.> b)
   V.freeze v
   where
     n   = V.length xs
