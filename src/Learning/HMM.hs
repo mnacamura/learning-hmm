@@ -27,9 +27,9 @@ import Learning.HMM.Internal
 type LogLikelihood = Double
 
 -- | Parameter set of the hidden Markov model. Direct use of the
---   constructor is not recommended. Instead, call 'new'.
+--   constructor is not recommended. Instead, call 'new' or 'init'.
 data HMM s o = HMM { states  :: [s] -- ^ Hidden states
-                   , outputs :: [o] -- ^ Observed outputs
+                   , outputs :: [o] -- ^ Outputs
                    , initialStateDist :: Categorical Double s
                      -- ^ Categorical distribution of initial states
                    , transitionDist :: s -> Categorical Double s
@@ -57,7 +57,7 @@ showHMM hmm = "HMM {states = "           ++ show ss
     w   = transitionDist hmm
     phi = emissionDist hmm
 
--- | Construct a 'HMM' from the given states and outputs. The
+-- | Return a model from the given states and outputs. The
 --   'initialStateDist' and 'emissionDist' are set to be uniform
 --   distributions. The 'transitionDist' is specified as follows: with
 --   probability 1/2, move to the same state, otherwise, move to a random
@@ -80,13 +80,16 @@ new ss os = HMM { states           = ss
     phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
           | otherwise   = C.fromList []
 
--- | Return a uniformly distributed random model.
+-- | Return a uniformly distributed random variable of models.
 init :: (Ord s, Ord o) => [s] -> [o] -> RVar (HMM s o)
 init ss os = do hmm' <- init' (V.fromList ss) (V.fromList os)
                 return $ fromHMM' hmm'
 
--- | Return a model in which the emission distribution is updated by using
---   the given output data.
+-- | Return a model in which the 'emissionDist' is updated by using the
+--   observed outputs. The 'emissionDist' is set to be normalized histograms
+--   each of which is calculated from a partial set of observed outputs for
+--   each state. The partition is based on the most likely state path
+--   determined by the Viterbi algorithm.
 withEmission :: (Ord s, Ord o) => HMM s o -> [o] -> HMM s o
 withEmission model xs = fromHMM' $ withEmission' (toHMM' model) (V.fromList xs)
 
@@ -101,9 +104,8 @@ viterbi model xs =
     model' = toHMM' model
     xs'    = V.fromList xs
 
--- | Perform the Baum-Welch algorithm steps iteratively and return
---   a list of updated 'HMM' parameters and their corresponding log
---   likelihoods.
+-- | Perform the Baum-Welch algorithm steps iteratively and return a list
+--   of updated models and their corresponding log likelihoods.
 baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
@@ -113,7 +115,7 @@ baumWelch model xs =
     model' = toHMM' model
     xs'    = V.fromList xs
 
--- | Check if the 'HMM' is valid in the sense of whether the 'states' and
+-- | Check if the model is valid in the sense of whether the 'states' and
 --   'outputs' are not empty.
 checkModelIn :: String -> HMM s o -> ()
 checkModelIn fun hmm
@@ -125,8 +127,8 @@ checkModelIn fun hmm
     os = outputs hmm
     err = errorIn fun
 
--- | Check if all the elements of the data are contained in the 'outputs'
---   of the 'HMM'.
+-- | Check if all the elements of the observed outputs are contained in the
+--   'outputs' of the model.
 checkDataIn :: Eq o => String -> HMM s o -> [o] -> ()
 checkDataIn fun hmm xs
   | all (`elem` os) xs = ()

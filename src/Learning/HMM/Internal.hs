@@ -34,7 +34,7 @@ import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
 type Likelihood  = LogFloat
 type Probability = LogFloat
 
--- | More efficient data structure of the HMM parameters. This should be
+-- | More efficient data structure of the 'HMM' model. This should be
 --   only used internally. The 'emissionDistT'' is a transposed matrix in
 --   order to simplify the calculation.
 data HMM' s o = HMM' { states'           :: Vector s
@@ -44,7 +44,6 @@ data HMM' s o = HMM' { states'           :: Vector s
                      , emissionDistT'    :: Vector (Vector Probability)
                      }
 
--- | Return a uniformly distributed random model.
 init' :: Vector s -> Vector o -> RVar (HMM' s o)
 init' ss os = do
   let n = V.length ss
@@ -59,8 +58,6 @@ init' ss os = do
               , emissionDistT'    = V.transpose phi
               }
 
--- | Return a model in which the emission distribution is updated by using
--- the given output data.
 withEmission' :: (Ord s, Ord o) => HMM' s o -> Vector o -> HMM' s o
 withEmission' model xs = model { emissionDistT' = phi' }
   where
@@ -71,8 +68,6 @@ withEmission' model xs = model { emissionDistT' = phi' }
     hists = V.map (\s -> V.map (\o -> M.findWithDefault 0 (s, o) mp) os) ss
     phi'  = V.transpose $ V.map (\h -> h >/ V.sum h) hists
 
--- | Perform the Viterbi algorithm and return the most likely state path
---   and its likelihood.
 viterbi' :: Eq o => HMM' s o -> Vector o -> (Vector s, Likelihood)
 viterbi' model xs = (path, likelihood)
   where
@@ -116,15 +111,13 @@ viterbi' model xs = (path, likelihood)
     -- Here we assumed that
     n = V.length xs
 
--- | Perform the Baum-Welch algorithm steps iteratively and return
---   a list of updated 'HMM'' parameters and their corresponding likelihoods.
 baumWelch' :: (Eq s, Eq o) => HMM' s o -> Vector o -> [(HMM' s o, Likelihood)]
 baumWelch' model xs = zip ms $ tail ells
   where
     (ms, ells) = unzip $ iterate ((`baumWelch1'` xs) . fst) (model, undefined)
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
---   'HMM'' parameters and the likelihood of the old parameters.
+--   model and the likelihood of the old model.
 baumWelch1' :: (Eq s, Eq o) => HMM' s o -> Vector o -> (HMM' s o, Likelihood)
 baumWelch1' model xs = (model', likelihood)
   where
@@ -171,7 +164,6 @@ baumWelch1' model xs = (model', likelihood)
     -- Here we assumed that
     os = outputs' model
 
--- | Baum-Welch forward algorithm that generates α values
 forward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 forward' model xs = runST $ do
   v <- MV.new n
@@ -189,7 +181,6 @@ forward' model xs = runST $ do
     w    = transitionDist' model
     phi' = emissionDistT' model
 
--- | Baum-Welch backward algorithm that generates β values
 backward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 backward' model xs = runST $ do
   v <- MV.new n
