@@ -11,7 +11,9 @@ module Learning.HMM (
 
 import Prelude hiding (init)
 import Control.Applicative ((<$>))
-import Control.Arrow ((***), first)
+import Control.Arrow ((***))
+import Data.List (elemIndex, genericLength)
+import Data.Maybe (fromJust)
 import Data.Random.Distribution (pdf, rvar)
 import Data.Random.Distribution.Categorical (Categorical)
 import qualified Data.Random.Distribution.Categorical as C (
@@ -20,10 +22,9 @@ import qualified Data.Random.Distribution.Categorical as C (
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
-import Data.List (genericLength)
 import Data.Number.LogFloat (fromLogFloat, logFloat, logFromLogFloat)
 import Data.Vector ((!))
-import qualified Data.Vector as V (elemIndex, fromList, map, toList, zip)
+import qualified Data.Vector as V (elemIndex, fromList, map, mapM, toList)
 import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
 import Learning.HMM.Internal
 
@@ -89,16 +90,21 @@ new ss os = HMM { states           = ss
 -- | @init states outputs@ returns a random variable of the model with
 --   @states@ and @outputs@, wherein parameters are sampled from uniform
 --   distributions.
-init :: (Ord s, Ord o) => [s] -> [o] -> RVar (HMM s o)
-init ss os = fromHMM' <$> init' (V.fromList ss) (V.fromList os)
+init :: (Eq s, Eq o) => [s] -> [o] -> RVar (HMM s o)
+init ss os = fromHMM' ss os <$> init' (length ss) (length os)
 
 -- | @model \`withEmission\` xs@ returns a model in which the
 --   'emissionDist' is updated by using the observed outputs @xs@. The
 --   'emissionDist' is set to be normalized histograms each of which is
 --   calculated from a partial set of @xs@ for each state. The partition is
 --   based on the most likely state path obtained by the Viterbi algorithm.
-withEmission :: (Ord s, Ord o) => HMM s o -> [o] -> HMM s o
-withEmission model xs = fromHMM' $ withEmission' (toHMM' model) (V.fromList xs)
+withEmission :: (Eq s, Eq o) => HMM s o -> [o] -> HMM s o
+withEmission model xs = fromHMM' ss os $ withEmission' model' xs'
+  where
+    ss     = states model
+    os     = outputs model
+    model' = toHMM' model
+    xs'    = V.fromList $ fromJust $ mapM (`elemIndex` os) xs
 
 -- | @viterbi model xs@ performs the Viterbi algorithm using the observed
 --   outputs @xs@, and returns the most likely state path and its log
@@ -107,10 +113,12 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  (V.toList *** logFromLogFloat) $ viterbi' model' xs'
+  (V.toList . V.map (ss !) *** logFromLogFloat) $ viterbi' model' xs'
   where
+    ss     = V.fromList $ states model
+    os     = V.fromList $ outputs model
     model' = toHMM' model
-    xs'    = V.fromList xs
+    xs'    = fromJust $ V.mapM (`V.elemIndex` os) $ V.fromList xs
 
 -- | @baumWelch model xs@ iteratively performs the Baum-Welch algorithm
 --   using the observed outputs @xs@, and returns a list of updated models
@@ -119,10 +127,12 @@ baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
   checkDataIn "baumWelch" model xs `seq`
-  map (fromHMM' *** logFromLogFloat) $ baumWelch' model' xs'
+  map (fromHMM' ss os *** logFromLogFloat) $ baumWelch' model' xs'
   where
+    ss     = states model
+    os     = outputs model
     model' = toHMM' model
-    xs'    = V.fromList xs
+    xs'    = V.fromList $ fromJust $ mapM (`elemIndex` os) xs
 
 -- | @simulate model t@ generates a Markov process of length @t@ using the
 --   @model@, and returns its state path and observed outputs.
@@ -164,32 +174,30 @@ checkDataIn fun hmm xs
     err = errorIn fun
 
 -- | Convert 'HMM'' to 'HMM'.
-fromHMM' :: (Eq s, Eq o) => HMM' s o -> HMM s o
-fromHMM' hmm' = HMM { states           = V.toList ss
-                    , outputs          = V.toList os
-                    , initialStateDist = C.fromList pi0'
-                    , transitionDist   = \s -> case V.elemIndex s ss of
-                                                 Nothing -> C.fromList []
-                                                 Just i  -> C.fromList $ w' i
-                    , emissionDist     = \s -> case V.elemIndex s ss of
-                                                 Nothing -> C.fromList []
-                                                 Just i  -> C.fromList $ phi' i
-                    }
+fromHMM' :: (Eq s, Eq o) => [s] -> [o] -> HMM' -> HMM s o
+fromHMM' ss os hmm' = HMM { states           = ss
+                          , outputs          = os
+                          , initialStateDist = C.fromList pi0'
+                          , transitionDist   = \s -> case elemIndex s ss of
+                                                       Nothing -> C.fromList []
+                                                       Just i  -> C.fromList $ w' i
+                          , emissionDist     = \s -> case elemIndex s ss of
+                                                       Nothing -> C.fromList []
+                                                       Just i  -> C.fromList $ phi' i
+                          }
   where
-    ss  = states' hmm'
-    os  = outputs' hmm'
     pi0 = initialStateDist' hmm'
     w   = transitionDist' hmm'
     phi = V.transpose $ emissionDistT' hmm'
-    pi0'   = V.toList $ V.map (first fromLogFloat) $ V.zip pi0 ss
-    w' i   = V.toList $ V.map (first fromLogFloat) $ V.zip (w ! i) ss
-    phi' i = V.toList $ V.map (first fromLogFloat) $ V.zip (phi ! i) os
+    pi0'   = zip (map fromLogFloat (V.toList pi0)) ss
+    w' i   = zip (map fromLogFloat (V.toList $ w ! i)) ss
+    phi' i = zip (map fromLogFloat (V.toList $ phi ! i)) os
 
 -- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.
-toHMM' :: (Eq s, Eq o) => HMM s o -> HMM' s o
-toHMM' hmm = HMM' { states'           = V.fromList ss
-                  , outputs'          = V.fromList os
+toHMM' :: (Eq s, Eq o) => HMM s o -> HMM'
+toHMM' hmm = HMM' { nStates'          = length ss
+                  , nOutputs'         = length os
                   , initialStateDist' = V.fromList pi0'
                   , transitionDist'   = V.fromList w'
                   , emissionDistT'    = V.fromList phi'
