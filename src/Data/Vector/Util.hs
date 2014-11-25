@@ -1,13 +1,19 @@
 -- | Miscellaneous utility functions for "Data.Vector"
 module Data.Vector.Util (
-    unsafeElemIndex
+    frequencies
   ) where
 
-import Data.Maybe (fromJust)
-import Data.Vector (Vector, elemIndex)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M (empty, insertWith)
+import Data.Vector (Vector, foldl')
 
--- | Return the index of the first occurrence of the given element or throw
---   an error if no such occurrence.
-{-# INLINE unsafeElemIndex #-}
-unsafeElemIndex :: Eq a => a -> Vector a -> Int
-unsafeElemIndex e = fromJust . elemIndex e
+-- $setup
+-- >>> :module + Data.Vector
+
+-- | @frequencies xs@ returns a 'Map' from distinct items in @xs@ to
+-- the number of times they appear.
+--
+-- >>> frequencies $ fromList "bra bra bar"
+-- fromList [(' ',2),('a',3),('b',3),('r',3)]
+frequencies :: (Ord a, Num n) => Vector a -> Map a n
+frequencies = foldl' (\m k -> M.insertWith (+) k 1 m) M.empty

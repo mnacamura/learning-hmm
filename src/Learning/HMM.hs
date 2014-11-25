@@ -90,8 +90,7 @@ new ss os = HMM { states           = ss
 --   @states@ and @outputs@, wherein parameters are sampled from uniform
 --   distributions.
 init :: (Ord s, Ord o) => [s] -> [o] -> RVar (HMM s o)
-init ss os = do hmm' <- init' (V.fromList ss) (V.fromList os)
-                return $ fromHMM' hmm'
+init ss os = fromHMM' <$> init' (V.fromList ss) (V.fromList os)
 
 -- | @model \`withEmission\` xs@ returns a model in which the
 --   'emissionDist' is updated by using the observed outputs @xs@. The
@@ -113,9 +112,9 @@ viterbi model xs =
     model' = toHMM' model
     xs'    = V.fromList xs
 
--- | @baumWelch model xs@ performs the Baum-Welch algorithm using the
---   observed outputs @xs@, and iteratively returns a list of updated
---   models and their corresponding log likelihoods.
+-- | @baumWelch model xs@ iteratively performs the Baum-Welch algorithm
+--   using the observed outputs @xs@, and returns a list of updated models
+--   and their corresponding log likelihoods.
 baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
@@ -128,10 +127,11 @@ baumWelch model xs =
 -- | @simulate model t@ generates a Markov process of length @t@ using the
 --   @model@, and returns its state path and observed outputs.
 simulate :: HMM s o -> Int -> RVar ([s], [o])
-simulate model step | step < 1  = return ([], [])
-                    | otherwise = do s0 <- sample $ rvar pi0
-                                     x0 <- sample $ rvar $ phi s0
-                                     unzip . ((s0, x0) :) <$> sim s0 (step - 1)
+simulate model step
+  | step < 1  = return ([], [])
+  | otherwise = do s0 <- sample $ rvar pi0
+                   x0 <- sample $ rvar $ phi s0
+                   unzip . ((s0, x0) :) <$> sim s0 (step - 1)
   where
     sim _ 0 = return []
     sim s t = do s' <- sample $ rvar $ w s

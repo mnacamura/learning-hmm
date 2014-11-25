@@ -14,18 +14,19 @@ module Learning.HMM.Internal (
 import Control.Applicative ((<$>))
 import Control.Monad (forM_, replicateM)
 import Control.Monad.ST (runST)
-import qualified Data.Map.Strict as M (empty, insertWith, findWithDefault)
+import qualified Data.Map.Strict as M (findWithDefault)
+import Data.Maybe (fromJust)
 import Data.Number.LogFloat (LogFloat, logFloat)
 import Data.Random.RVar (RVar)
 import Data.Random.Distribution.Simplex (stdSimplex)
 import Data.Random.Distribution.Uniform.Util ()
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V (
-    filter, foldl', foldl1', freeze, fromList, last, length, map, maximum
-  , maxIndex, replicate, sum, tail, zip, zipWith, zipWith3, zipWith4
+    elemIndex, filter, foldl1', freeze, fromList, last, length, map, mapM
+  , maximum, maxIndex, replicate, sum, tail, zip, zipWith, zipWith3, zipWith4
   )
 import qualified Data.Vector.Mutable as MV (new, read, write)
-import qualified Data.Vector.Util as V (unsafeElemIndex)
+import qualified Data.Vector.Util as V (frequencies)
 import Data.Vector.Util.LinearAlgebra (
     (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#/), (<.>), (#.>), (<.#)
   )
@@ -61,12 +62,13 @@ init' ss os = do
 withEmission' :: (Ord s, Ord o) => HMM' s o -> Vector o -> HMM' s o
 withEmission' model xs = model { emissionDistT' = phi' }
   where
-    ss = states' model
-    os = outputs' model
-    (path, _) = viterbi' model xs
-    mp    = V.foldl' (\m k -> M.insertWith (+) k 1 m) M.empty $ V.zip path xs
-    hists = V.map (\s -> V.map (\o -> M.findWithDefault 0 (s, o) mp) os) ss
-    phi'  = V.transpose $ V.map (\h -> h >/ V.sum h) hists
+    ss   = states' model
+    os   = outputs' model
+    phi' = let (path, _) = viterbi' model xs
+               freqs     = V.frequencies $ V.zip path xs
+               hists     = V.map (\s -> V.map (\o ->
+                                 M.findWithDefault 0 (s, o) freqs) os) ss
+           in V.transpose $ V.map (\f -> f >/ V.sum f) hists
 
 viterbi' :: Eq o => HMM' s o -> Vector o -> (Vector s, Likelihood)
 viterbi' model xs = (path, likelihood)
@@ -76,9 +78,9 @@ viterbi' model xs = (path, likelihood)
     path = V.map (ss !) $ runST $ do
       ix <- MV.new n
       ix `MV.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
-      forM_ (reverse [0..(n-2)]) $ \i -> do
-        j <- ix `MV.read` (i+1)
-        ix `MV.write` i $ psis ! (i+1) ! j
+      forM_ (reverse [0..(n-2)]) $ \t -> do
+        i <- ix `MV.read` (t+1)
+        ix `MV.write` t $ psis ! (t+1) ! i
       V.freeze ix
       where
         ss = states' model
@@ -91,19 +93,19 @@ viterbi' model xs = (path, likelihood)
       ps <- MV.new n
       ds `MV.write` 0 $ (phi' ! x 0) >.> pi0
       ps `MV.write` 0 $ V.replicate k (0 :: Int)
-      forM_ [1..(n-1)] $ \i -> do
-        d <- ds `MV.read` (i-1)
+      forM_ [1..(n-1)] $ \t -> do
+        d <- ds `MV.read` (t-1)
         let dws = V.map (d >.>) w'
-        ds `MV.write` i $ phi' ! x i >.> V.map V.maximum dws
-        ps `MV.write` i $ V.map V.maxIndex dws
+        ds `MV.write` t $ phi' ! x t >.> V.map V.maximum dws
+        ps `MV.write` t $ V.map V.maxIndex dws
       ds' <- V.freeze ds
       ps' <- V.freeze ps
       return (ds', ps')
       where
         k   = V.length $ states' model
-        x i = let os  = outputs' model
-                  xs' = V.map (`V.unsafeElemIndex` os) xs
-              in xs' ! i
+        x t = let os  = outputs' model
+                  xs' = fromJust $ V.mapM (`V.elemIndex` os) xs
+              in xs' ! t
         pi0  = initialStateDist' model
         w'   = V.transpose $ transitionDist' model
         phi' = emissionDistT' model
@@ -144,7 +146,7 @@ baumWelch1' model xs = (model', likelihood)
                                      in w2 #/ l)
                alphas (V.tail betas) (V.tail ells) (V.tail xs')
       where
-        xs'  = V.map (`V.unsafeElemIndex` os) xs
+        xs'  = fromJust $ V.mapM (`V.elemIndex` os) xs
         w0   = transitionDist' model
         phi0 = emissionDistT' model
 
@@ -168,15 +170,15 @@ forward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 forward' model xs = runST $ do
   v <- MV.new n
   v `MV.write` 0 $ (phi' ! x 0) >.> pi0
-  forM_ [1..(n-1)] $ \i -> do
-    a <- v `MV.read` (i-1)
-    v `MV.write` i $ (phi' ! x i) >.> (a <.# w)
+  forM_ [1..(n-1)] $ \t -> do
+    a <- v `MV.read` (t-1)
+    v `MV.write` t $ (phi' ! x t) >.> (a <.# w)
   V.freeze v
   where
     n   = V.length xs
-    x i = let os  = outputs' model
-              xs' = V.map (`V.unsafeElemIndex` os) xs
-          in xs' ! i
+    x t = let os  = outputs' model
+              xs' = fromJust $ V.mapM (`V.elemIndex` os) xs
+          in xs' ! t
     pi0  = initialStateDist' model
     w    = transitionDist' model
     phi' = emissionDistT' model
@@ -185,15 +187,15 @@ backward' :: Eq o => HMM' s o -> Vector o -> Vector (Vector Probability)
 backward' model xs = runST $ do
   v <- MV.new n
   v `MV.write` (n-1) $ V.replicate k $ logFloat (1 :: Double)
-  forM_ (reverse [0..(n-2)]) $ \i -> do
-    b <- v `MV.read` (i+1)
-    v `MV.write` i $ w #.> ((phi' ! x (i+1)) >.> b)
+  forM_ (reverse [0..(n-2)]) $ \t -> do
+    b <- v `MV.read` (t+1)
+    v `MV.write` t $ w #.> ((phi' ! x (t+1)) >.> b)
   V.freeze v
   where
     n   = V.length xs
     k   = V.length $ states' model
-    x i = let os  = outputs' model
-              xs' = V.map (`V.unsafeElemIndex` os) xs
-          in xs' ! i
+    x t = let os  = outputs' model
+              xs' = fromJust $ V.mapM (`V.elemIndex` os) xs
+          in xs' ! t
     w    = transitionDist' model
     phi' = emissionDistT' model
