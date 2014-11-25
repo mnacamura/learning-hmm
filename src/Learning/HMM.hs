@@ -135,7 +135,7 @@ simulate model step | step < 1  = return ([], [])
   where
     sim _ 0 = return []
     sim s t = do s' <- sample $ rvar $ w s
-                 x' <- sample $ rvar $ phi s
+                 x' <- sample $ rvar $ phi s'
                  ((s', x') :) <$> sim s' (t - 1)
     pi0 = initialStateDist model
     w   = transitionDist model
