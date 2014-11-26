@@ -11,7 +11,7 @@ module Learning.HMM (
 
 import Prelude hiding (init)
 import Control.Applicative ((<$>))
-import Control.Arrow ((***))
+import Control.Arrow (first)
 import Data.List (elemIndex, genericLength)
 import Data.Maybe (fromJust)
 import Data.Random.Distribution (pdf, rvar)
@@ -22,13 +22,10 @@ import qualified Data.Random.Distribution.Categorical as C (
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
-import Data.Number.LogFloat (fromLogFloat, logFloat, logFromLogFloat)
 import Data.Vector ((!))
 import qualified Data.Vector as V (elemIndex, fromList, map, mapM, toList)
 import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
 import Learning.HMM.Internal
-
-type LogLikelihood = Double
 
 -- | Parameter set of the hidden Markov model. Direct use of the
 --   constructor is not recommended. Instead, call 'new' or 'init'.
@@ -113,7 +110,7 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  (V.toList . V.map (ss !) *** logFromLogFloat) $ viterbi' model' xs'
+  first (V.toList . V.map (ss !)) $ viterbi' model' xs'
   where
     ss     = V.fromList $ states model
     os     = V.fromList $ outputs model
@@ -127,7 +124,7 @@ baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
   checkDataIn "baumWelch" model xs `seq`
-  map (fromHMM' ss os *** logFromLogFloat) $ baumWelch' model' xs'
+  map (first $ fromHMM' ss os) $ baumWelch' model' xs'
   where
     ss     = states model
     os     = outputs model
@@ -189,9 +186,9 @@ fromHMM' ss os hmm' = HMM { states           = ss
     pi0 = initialStateDist' hmm'
     w   = transitionDist' hmm'
     phi = V.transpose $ emissionDistT' hmm'
-    pi0'   = zip (map fromLogFloat (V.toList pi0)) ss
-    w' i   = zip (map fromLogFloat (V.toList $ w ! i)) ss
-    phi' i = zip (map fromLogFloat (V.toList $ phi ! i)) os
+    pi0'   = zip (V.toList pi0) ss
+    w' i   = zip (V.toList $ w ! i) ss
+    phi' i = zip (V.toList $ phi ! i) os
 
 -- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.
@@ -208,9 +205,9 @@ toHMM' hmm = HMM' { nStates'          = length ss
     pi0 = C.normalizeCategoricalPs $ initialStateDist hmm
     w   = C.normalizeCategoricalPs . transitionDist hmm
     phi = C.normalizeCategoricalPs . emissionDist hmm
-    pi0' = [logFloat $ pdf pi0 s | s <- ss]
-    w'   = [V.fromList [logFloat $ pdf (w s) s' | s' <- ss] | s <- ss]
-    phi' = [V.fromList [logFloat $ pdf (phi s) o | s <- ss] | o <- os]
+    pi0' = [pdf pi0 s | s <- ss]
+    w'   = [V.fromList [pdf (w s) s' | s' <- ss] | s <- ss]
+    phi' = [V.fromList [pdf (phi s) o | s <- ss] | o <- os]
 
 errorIn :: String -> String -> a
 errorIn fun msg = error $ "Learning.HMM." ++ fun ++ ": " ++ msg

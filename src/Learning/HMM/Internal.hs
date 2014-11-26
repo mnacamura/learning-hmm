@@ -1,6 +1,6 @@
 module Learning.HMM.Internal (
     HMM' (..)
-  , Likelihood
+  , LogLikelihood
   , Probability
   , init'
   , withEmission'
@@ -15,24 +15,22 @@ import Control.Applicative ((<$>))
 import Control.Monad (forM_, replicateM)
 import Control.Monad.ST (runST)
 import qualified Data.Map.Strict as M (findWithDefault)
-import Data.Number.LogFloat (LogFloat, logFloat)
 import Data.Random.RVar (RVar)
 import Data.Random.Distribution.Simplex (stdSimplex)
-import Data.Random.Distribution.Uniform.Util ()
 import Data.Vector (Vector, (!))
 import qualified Data.Vector as V (
-    filter, foldl1', freeze, fromList, generate, last, length, map, maximum
-  , maxIndex, replicate, sum, tail, zip, zipWith, zipWith3, zipWith4
+    filter, foldl1', freeze, fromList, generate, length, map, maximum
+  , maxIndex, replicate, sum, tail, zip, zipWith, zipWith3
   )
 import qualified Data.Vector.Mutable as MV (new, read, write)
 import qualified Data.Vector.Util as V (frequencies)
 import Data.Vector.Util.LinearAlgebra (
-    (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#/), (<.>), (#.>), (<.#)
+    (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#.>), (<.#)
   )
 import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
 
-type Likelihood  = LogFloat
-type Probability = LogFloat
+type LogLikelihood = Double
+type Probability   = Double
 
 -- | More efficient data structure of the 'HMM' model. The 'states' and
 --   'outputs' in 'HMM' are represented by their indices. The
@@ -69,32 +67,24 @@ withEmission' model xs = model { emissionDistT' = phi' }
                                  M.findWithDefault 0 (s, o) freqs) os) ss
            in V.transpose $ V.map (\f -> f >/ V.sum f) hists
 
-viterbi' :: HMM' -> Vector Int -> (Vector Int, Likelihood)
-viterbi' model xs = (path, likelihood)
+viterbi' :: HMM' -> Vector Int -> (Vector Int, LogLikelihood)
+viterbi' model xs = (path, logL)
   where
-    -- The following procedure is based on
-    -- http://ibisforest.org/index.php?cmd=read&page=Viterbi%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0&word=Viterbi
-    path = runST $ do
-      ix <- MV.new n
-      ix `MV.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
-      forM_ (reverse [1..(n-1)]) $ \t -> do
-        i <- ix `MV.read` t
-        ix `MV.write` (t-1) $ psis ! t ! i
-      V.freeze ix
+    n = V.length xs
 
-    likelihood = V.maximum $ deltas ! (n-1)
-
-    deltas :: Vector (Vector Probability)
+    -- First, we calculate the value function and the state maximizing it
+    -- for each time.
+    deltas :: Vector (Vector LogLikelihood)
     psis   :: Vector (Vector Int)
     (deltas, psis) = runST $ do
       ds <- MV.new n
       ps <- MV.new n
-      ds `MV.write` 0 $ (phi' ! (xs ! 0)) >.> pi0
-      ps `MV.write` 0 $ V.replicate k (0 :: Int)
+      ds `MV.write` 0 $ V.map log (phi' ! (xs ! 0)) >+> V.map log pi0
+      ps `MV.write` 0 $ V.replicate k 0
       forM_ [1..(n-1)] $ \t -> do
         d <- ds `MV.read` (t-1)
-        let dws = V.map (d >.>) w'
-        ds `MV.write` t $ (phi' ! (xs ! t)) >.> V.map V.maximum dws
+        let dws = V.map (\wj -> d >+> V.map log wj) w'
+        ds `MV.write` t $ V.map log (phi' ! (xs ! t)) >+> V.map V.maximum dws
         ps `MV.write` t $ V.map V.maxIndex dws
       ds' <- V.freeze ds
       ps' <- V.freeze ps
@@ -105,86 +95,102 @@ viterbi' model xs = (path, likelihood)
         w'   = V.transpose $ transitionDist' model
         phi' = emissionDistT' model
 
-    -- Here we assumed that
-    n = V.length xs
+    -- The most likely path and corresponding log likelihood is as follows.
+    path = runST $ do
+      ix <- MV.new n
+      ix `MV.write` (n-1) $ V.maxIndex $ deltas ! (n-1)
+      forM_ (reverse [0..(n-2)]) $ \t -> do
+        i <- ix `MV.read` (t+1)
+        ix `MV.write` t $ psis ! (t+1) ! i
+      V.freeze ix
+    logL = V.maximum $ deltas ! (n-1)
 
-baumWelch' :: HMM' -> Vector Int -> [(HMM', Likelihood)]
-baumWelch' model xs = zip ms $ tail ells
+baumWelch' :: HMM' -> Vector Int -> [(HMM', LogLikelihood)]
+baumWelch' model xs = zip models (tail logLs)
   where
     n = V.length xs
-    (ms, ells) = unzip $ iterate step (model, undefined)
-    step (m, _) = m `seq` baumWelch1' m n xs
+    step (m, _)     = m `seq` baumWelch1' m n xs
+    (models, logLs) = unzip $ iterate step (model, undefined)
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.
-baumWelch1' :: HMM' -> Int -> Vector Int -> (HMM', Likelihood)
-baumWelch1' model n xs = (model', likelihood)
+baumWelch1' :: HMM' -> Int -> Vector Int -> (HMM', LogLikelihood)
+baumWelch1' model n xs = (model', logL)
   where
-    model' = model { initialStateDist' = pi0
-                   , transitionDist'   = w
-                   , emissionDistT'    = phi'
-                   }
-    likelihood = V.last ells
-
-    -- First, we calculate the alpha and beta values using the
+    -- First, we calculate the alpha, beta, and scaling values using the
     -- forward-backward algorithm.
-    alphas = forward' model n xs
-    betas  = backward' model n xs
+    (alphas, cs) = forward' model n xs
+    betas        = backward' model n xs cs
 
-    -- Then, we obtain the likelihoods for each time. This should be
-    -- constant over time.
-    ells = V.zipWith (<.>) alphas betas
-
-    -- Based on the alpha, beta, and likelihood values, we calculate the
+    -- Based on the alpha, beta, and scaling values, we calculate the
     -- gamma and xi values.
-    gammas = V.zipWith3 (\a b l -> a >.> b >/ l) alphas betas ells
-    xis    = V.zipWith4 (\a b l x -> let w1 = V.zipWith (.>) a w0
-                                         w2 = V.map (phi0 ! x >.> b >.>) w1
-                                     in w2 #/ l)
-               alphas (V.tail betas) (V.tail ells) (V.tail xs)
+    gammas = V.zipWith3 (\a b c -> a >.> b >/ c) alphas betas cs
+    xis    = V.zipWith3 (\a b x -> let w1 = V.zipWith (.>) a w0
+                                   in V.map ((phi0 ! x) >.> b >.>) w1)
+               alphas (V.tail betas) (V.tail xs)
       where
         w0   = transitionDist' model
         phi0 = emissionDistT' model
 
-    -- Using the gamma and xi values, we finally obtain the optimal initial
-    -- state probability vector, transition probability matrix, and
-    -- emission probability matrix.
-    pi0  = let gs = gammas ! 0
-           in gs >/ V.sum gs
-    w    = let ws = V.foldl1' (#+#) xis
-               zs = V.map V.sum ws
-           in V.zipWith (>/) ws zs
+    -- Using the gamma and xi values, we obtain the optimal initial state
+    -- probability vector, transition probability matrix, and emission
+    -- probability matrix.
+    pi0  = gammas ! 0
+    w    = let ds = V.foldl1' (#+#) xis -- denominators
+               ns = V.map V.sum ds      -- numerators
+           in V.zipWith (>/) ds ns
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip xs gammas
-               phis  = V.foldl1' (>+>) . gs'
-               zs    = V.foldl1' (>+>) gammas
-           in V.map (\o -> phis o >/> zs) os
+               ds    = V.foldl1' (>+>) . gs'  -- denominators
+               ns    = V.foldl1' (>+>) gammas -- numerators
+           in V.map (\o -> ds o >/> ns) os
+      where
+        os = V.generate (nOutputs' model) id
 
-    -- Here we assumed that
-    os = V.generate (nOutputs' model) id
+    -- We finally obtain the new model and the likelihood for the old model.
+    model' = model { initialStateDist' = pi0
+                   , transitionDist'   = w
+                   , emissionDistT'    = phi'
+                   }
+    logL = - (V.sum $ V.map log cs)
 
-forward' :: HMM' -> Int -> Vector Int -> Vector (Vector Probability)
+-- | Return alphas and scaling variables.
+forward' :: HMM' -> Int -> Vector Int -> (Vector (Vector Probability), Vector Probability)
 {-# INLINE forward' #-}
 forward' model n xs = runST $ do
-  v <- MV.new n
-  v `MV.write` 0 $ (phi' ! (xs ! 0)) >.> pi0
+  as <- MV.new n
+  cs <- MV.new n
+  let a0 = (phi' ! (xs ! 0)) >.> pi0
+      c0 = 1 / V.sum a0
+  MV.write as 0 (c0 .> a0)
+  MV.write cs 0 c0
   forM_ [1..(n-1)] $ \t -> do
-    a <- v `MV.read` (t-1)
-    v `MV.write` t $ (phi' ! (xs ! t)) >.> (a <.# w)
-  V.freeze v
+    a <- as `MV.read` (t-1)
+    let a' = (phi' ! (xs ! t)) >.> (a <.# w)
+        c' = 1 / V.sum a'
+    MV.write as t (c' .> a')
+    MV.write cs t c'
+  as' <- V.freeze as
+  cs' <- V.freeze cs
+  return (as', cs')
   where
     pi0  = initialStateDist' model
     w    = transitionDist' model
     phi' = emissionDistT' model
 
-backward' :: HMM' -> Int -> Vector Int -> Vector (Vector Probability)
+-- | Return betas using scaling variables.
+backward' :: HMM' -> Int -> Vector Int -> Vector Probability -> Vector (Vector Probability)
 {-# INLINE backward' #-}
-backward' model n xs = runST $ do
-  v <- MV.new n
-  v `MV.write` (n-1) $ V.replicate k $ logFloat (1 :: Double)
-  forM_ (reverse [1..(n-1)]) $ \t -> do
-    b <- v `MV.read` t
-    v `MV.write` (t-1) $ w #.> ((phi' ! (xs ! t)) >.> b)
-  V.freeze v
+backward' model n xs cs = runST $ do
+  bs <- MV.new n
+  let bE = V.replicate k 1
+      cE = cs ! (n-1)
+  MV.write bs (n-1) $ cE .> bE
+  forM_ (reverse [0..(n-2)]) $ \t -> do
+    b <- MV.read bs (t+1)
+    let b' = w #.> ((phi' ! (xs ! (t+1))) >.> b)
+        c' = cs ! t
+    MV.write bs t $ c' .> b'
+  V.freeze bs
   where
     k    = nStates' model
     w    = transitionDist' model
