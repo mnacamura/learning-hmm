@@ -12,6 +12,7 @@ module Learning.HMM.Internal (
   ) where
 
 import Control.Applicative ((<$>))
+import Control.DeepSeq (NFData, force, rnf)
 import Control.Monad (forM_, replicateM)
 import Control.Monad.ST (runST)
 import qualified Data.Map.Strict as M (findWithDefault)
@@ -43,6 +44,15 @@ data HMM' = HMM' { nStates'          :: Int -- ^ Number of states
                  , transitionDist'   :: Vector (Vector Probability)
                  , emissionDistT'    :: Vector (Vector Probability)
                  }
+
+instance NFData HMM' where
+  rnf hmm' = rnf n `seq` rnf m `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
+    where
+      n    = nStates' hmm'
+      m    = nOutputs' hmm'
+      pi0  = initialStateDist' hmm'
+      w    = transitionDist' hmm'
+      phi' = emissionDistT' hmm'
 
 init' :: Int -> Int -> RVar HMM'
 init' n m = do
@@ -109,13 +119,13 @@ baumWelch' :: HMM' -> Vector Int -> [(HMM', LogLikelihood)]
 baumWelch' model xs = zip models (tail logLs)
   where
     n = V.length xs
-    step (m, _)     = m `seq` baumWelch1' m n xs
+    step (m, _)     = baumWelch1' m n xs
     (models, logLs) = unzip $ iterate step (model, undefined)
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.
 baumWelch1' :: HMM' -> Int -> Vector Int -> (HMM', LogLikelihood)
-baumWelch1' model n xs = (model', logL)
+baumWelch1' model n xs = force (model', logL)
   where
     -- First, we calculate the alpha, beta, and scaling values using the
     -- forward-backward algorithm.

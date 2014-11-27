@@ -33,6 +33,7 @@ library
   -- other-extensions:  
   build-depends:     base >=4.7 && <4.8
                    , containers
+                   , deepseq
                    , random-fu
                    , random-source
                    , vector
