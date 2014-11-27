@@ -22,9 +22,10 @@ import qualified Data.Random.Distribution.Categorical as C (
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
-import Data.Vector ((!))
-import qualified Data.Vector as V (elemIndex, fromList, map, mapM, toList)
-import qualified Data.Vector.Generic.Util.LinearAlgebra as V (transpose)
+import qualified Data.Vector as V ((!), elemIndex, fromList, map, toList)
+import qualified Data.Vector.Generic as G (convert)
+import qualified Data.Vector.Generic.Util.LinearAlgebra as G (transpose)
+import qualified Data.Vector.Unboxed as U (fromList, toList)
 import Learning.HMM.Internal
 
 -- | Parameter set of the hidden Markov model. Direct use of the
@@ -100,8 +101,9 @@ withEmission model xs = fromHMM' ss os $ withEmission' model' xs'
   where
     ss     = states model
     os     = outputs model
+    os'    = V.fromList os
     model' = toHMM' model
-    xs'    = V.fromList $ fromJust $ mapM (`elemIndex` os) xs
+    xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @viterbi model xs@ performs the Viterbi algorithm using the observed
 --   outputs @xs@, and returns the most likely state path and its log
@@ -110,12 +112,12 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  first (V.toList . V.map (ss !)) $ viterbi' model' xs'
+  first (V.toList . V.map (ss V.!) . G.convert) $ viterbi' model' xs'
   where
     ss     = V.fromList $ states model
-    os     = V.fromList $ outputs model
+    os'    = V.fromList $ outputs model
     model' = toHMM' model
-    xs'    = fromJust $ V.mapM (`V.elemIndex` os) $ V.fromList xs
+    xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @baumWelch model xs@ iteratively performs the Baum-Welch algorithm
 --   using the observed outputs @xs@, and returns a list of updated models
@@ -128,8 +130,9 @@ baumWelch model xs =
   where
     ss     = states model
     os     = outputs model
+    os'    = V.fromList os
     model' = toHMM' model
-    xs'    = V.fromList $ fromJust $ mapM (`elemIndex` os) xs
+    xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @simulate model t@ generates a Markov process of length @t@ using the
 --   @model@, and returns its state path and observed outputs.
@@ -185,17 +188,17 @@ fromHMM' ss os hmm' = HMM { states           = ss
   where
     pi0 = initialStateDist' hmm'
     w   = transitionDist' hmm'
-    phi = V.transpose $ emissionDistT' hmm'
-    pi0'   = zip (V.toList pi0) ss
-    w' i   = zip (V.toList $ w ! i) ss
-    phi' i = zip (V.toList $ phi ! i) os
+    phi = G.transpose $ emissionDistT' hmm'
+    pi0'   = zip (U.toList pi0) ss
+    w' i   = zip (U.toList $ w V.! i) ss
+    phi' i = zip (U.toList $ phi V.! i) os
 
 -- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.
 toHMM' :: (Eq s, Eq o) => HMM s o -> HMM'
 toHMM' hmm = HMM' { nStates'          = length ss
                   , nOutputs'         = length os
-                  , initialStateDist' = V.fromList pi0'
+                  , initialStateDist' = U.fromList pi0'
                   , transitionDist'   = V.fromList w'
                   , emissionDistT'    = V.fromList phi'
                   }
@@ -206,8 +209,8 @@ toHMM' hmm = HMM' { nStates'          = length ss
     w   = C.normalizeCategoricalPs . transitionDist hmm
     phi = C.normalizeCategoricalPs . emissionDist hmm
     pi0' = [pdf pi0 s | s <- ss]
-    w'   = [V.fromList [pdf (w s) s' | s' <- ss] | s <- ss]
-    phi' = [V.fromList [pdf (phi s) o | s <- ss] | o <- os]
+    w'   = [U.fromList [pdf (w s) s' | s' <- ss] | s <- ss]
+    phi' = [U.fromList [pdf (phi s) o | s <- ss] | o <- os]
 
 errorIn :: String -> String -> a
 errorIn fun msg = error $ "Learning.HMM." ++ fun ++ ": " ++ msg
