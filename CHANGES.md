@@ -1,6 +1,10 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.2.0.0
+- Remove dependency on the 'logfloat' package
+- Performance improvements
+
 ## Version 0.1.1.0
 - Add function `init` for random initialization
 - Add function `simulate` for running a Markov process
