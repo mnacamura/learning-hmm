@@ -108,7 +108,7 @@ viterbi' model xs = (path, logL)
         w'   = G.transpose $ transitionDist' model
         phi' = emissionDistT' model
 
-    -- The most likely path and corresponding log likelihood is as follows.
+    -- The most likely path and corresponding log likelihood are as follows.
     path = runST $ do
       ix <- MU.new n
       MU.write ix (n-1) $ U.maxIndex (deltas V.! (n-1))
