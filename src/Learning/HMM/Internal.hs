@@ -23,12 +23,12 @@ import qualified Data.Vector as V (
     filter, foldl1', freeze, fromList, generate, length, map, maximum
   , maxIndex, replicate, sum, tail, zip, zipWith, zipWith3
   )
-import qualified Data.Vector.Mutable as MV (new, read, write)
-import qualified Data.Vector.Util as V (frequencies)
-import Data.Vector.Util.LinearAlgebra (
+import qualified Data.Vector.Generic.Util as V (frequencies)
+import Data.Vector.Generic.Util.LinearAlgebra (
     (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#.>), (<.#)
   )
-import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
+import qualified Data.Vector.Generic.Util.LinearAlgebra as V (transpose)
+import qualified Data.Vector.Mutable as MV (new, read, write)
 
 type LogLikelihood = Double
 type Probability   = Double

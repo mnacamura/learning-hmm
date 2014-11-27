@@ -24,7 +24,7 @@ import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
 import Data.Vector ((!))
 import qualified Data.Vector as V (elemIndex, fromList, map, mapM, toList)
-import qualified Data.Vector.Util.LinearAlgebra as V (transpose)
+import qualified Data.Vector.Generic.Util.LinearAlgebra as V (transpose)
 import Learning.HMM.Internal
 
 -- | Parameter set of the hidden Markov model. Direct use of the
