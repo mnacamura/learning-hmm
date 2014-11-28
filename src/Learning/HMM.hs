@@ -22,7 +22,7 @@ import qualified Data.Random.Distribution.Categorical as C (
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
-import qualified Data.Vector as V ((!), elemIndex, fromList, map, toList)
+import qualified Data.Vector as V (elemIndex, fromList, map, toList, unsafeIndex)
 import qualified Data.Vector.Generic as G (convert)
 import qualified Data.Vector.Generic.Util.LinearAlgebra as G (transpose)
 import qualified Data.Vector.Unboxed as U (fromList, toList)
@@ -112,7 +112,7 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  first (V.toList . V.map (ss V.!) . G.convert) $ viterbi' model' xs'
+  first (V.toList . V.map (V.unsafeIndex ss) . G.convert) $ viterbi' model' xs'
   where
     ss     = V.fromList $ states model
     os'    = V.fromList $ outputs model
@@ -190,8 +190,8 @@ fromHMM' ss os hmm' = HMM { states           = ss
     w   = transitionDist' hmm'
     phi = G.transpose $ emissionDistT' hmm'
     pi0'   = zip (U.toList pi0) ss
-    w' i   = zip (U.toList $ w V.! i) ss
-    phi' i = zip (U.toList $ phi V.! i) os
+    w' i   = zip (U.toList $ V.unsafeIndex w i) ss
+    phi' i = zip (U.toList $ V.unsafeIndex phi i) os
 
 -- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.

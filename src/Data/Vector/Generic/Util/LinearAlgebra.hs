@@ -41,9 +41,10 @@ module Data.Vector.Generic.Util.LinearAlgebra (
   , transpose
   ) where
 
-import Prelude hiding (any, head, map, null, sum, tail, zipWith)
+import Prelude hiding (any, map, null, sum, zipWith)
 import Data.Vector.Generic (
-    Vector, any, cons, convert, empty, head, map, null, sum, tail, zipWith
+    Vector, any, cons, convert, empty, map, null, sum, unsafeHead, unsafeTail
+  , zipWith
   )
 
 -- $setup
@@ -128,7 +129,10 @@ m #.> v = convert $ map (<.> v) m
 (<.#) :: (Num a, Vector v a, Vector w (v a), Vector w a) => v a -> w (v a) -> v a
 {-# INLINE (<.#) #-}
 v <.# m | any null m = empty
-        | otherwise  = (v <.> convert (map head m)) `cons` (v <.# map tail m)
+        | otherwise  = hd `cons` tl
+  where
+    hd = v <.> convert (map unsafeHead m)
+    tl = v <.# map unsafeTail m
 
 -- | Matrix transpose
 --
@@ -138,4 +142,7 @@ transpose :: (Vector v a, Vector w (v a), Vector w a) => w (v a) -> w (v a)
 {-# INLINE transpose #-}
 transpose m
   | any null m = empty
-  | otherwise  = convert (map head m) `cons` transpose (map tail m)
+  | otherwise  = hd `cons` tl
+  where
+    hd = convert $ map unsafeHead m
+    tl = transpose $ map unsafeTail m

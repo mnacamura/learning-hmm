@@ -18,8 +18,8 @@ import qualified Data.Map.Strict as M (findWithDefault)
 import Data.Random.RVar (RVar)
 import Data.Random.Distribution.Simplex (stdSimplex)
 import qualified Data.Vector as V (
-    Vector, (!), filter, foldl1', freeze, fromList, generate, map , tail
-  , zip, zipWith, zipWith3
+    Vector, filter, foldl1', fromList, generate, map
+  , unsafeFreeze, unsafeIndex, unsafeTail, zip, zipWith, zipWith3
   )
 import qualified Data.Vector.Generic as G (convert)
 import qualified Data.Vector.Generic.Util as G (frequencies)
@@ -27,12 +27,16 @@ import Data.Vector.Generic.Util.LinearAlgebra (
     (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#.>), (<.#)
   )
 import qualified Data.Vector.Generic.Util.LinearAlgebra as G (transpose)
-import qualified Data.Vector.Mutable as MV (new, read, write)
-import qualified Data.Vector.Unboxed as U (
-    Vector, (!), freeze, fromList, generate, length, map, maxIndex, maximum
-  , replicate, sum, tail, zip
+import qualified Data.Vector.Mutable as MV (
+    unsafeNew, unsafeRead, unsafeWrite
   )
-import qualified Data.Vector.Unboxed.Mutable as MU (new, read, write)
+import qualified Data.Vector.Unboxed as U (
+    Vector, fromList, generate, length, map, maxIndex, maximum
+  , replicate, sum, unsafeFreeze, unsafeIndex, unsafeTail, zip
+  )
+import qualified Data.Vector.Unboxed.Mutable as MU (
+    unsafeNew, unsafeRead, unsafeWrite
+  )
 
 type LogLikelihood = Double
 
@@ -90,17 +94,17 @@ viterbi' model xs = (path, logL)
     deltas :: V.Vector (U.Vector Double)
     psis   :: V.Vector (U.Vector Int)
     (deltas, psis) = runST $ do
-      ds <- MV.new n
-      ps <- MV.new n
-      MV.write ds 0 $ U.map log (phi' V.! (xs U.! 0)) >+> U.map log pi0
-      MV.write ps 0 $ U.replicate k 0
+      ds <- MV.unsafeNew n
+      ps <- MV.unsafeNew n
+      MV.unsafeWrite ds 0 $ U.map log (V.unsafeIndex phi' (U.unsafeIndex xs 0)) >+> U.map log pi0
+      MV.unsafeWrite ps 0 $ U.replicate k 0
       forM_ [1..(n-1)] $ \t -> do
-        d <- MV.read ds (t-1)
+        d <- MV.unsafeRead ds (t-1)
         let dws = V.map (\wj -> d >+> U.map log wj) w'
-        MV.write ds t $ U.map log (phi' V.! (xs U.! t)) >+> G.convert (V.map U.maximum dws)
-        MV.write ps t $ G.convert (V.map U.maxIndex dws)
-      ds' <- V.freeze ds
-      ps' <- V.freeze ps
+        MV.unsafeWrite ds t $ U.map log (V.unsafeIndex phi' (U.unsafeIndex xs t)) >+> G.convert (V.map U.maximum dws)
+        MV.unsafeWrite ps t $ G.convert (V.map U.maxIndex dws)
+      ds' <- V.unsafeFreeze ds
+      ps' <- V.unsafeFreeze ps
       return (ds', ps')
       where
         k    = nStates' model
@@ -110,13 +114,13 @@ viterbi' model xs = (path, logL)
 
     -- The most likely path and corresponding log likelihood are as follows.
     path = runST $ do
-      ix <- MU.new n
-      MU.write ix (n-1) $ U.maxIndex (deltas V.! (n-1))
+      ix <- MU.unsafeNew n
+      MU.unsafeWrite ix (n-1) $ U.maxIndex (V.unsafeIndex deltas (n-1))
       forM_ (reverse [0..(n-2)]) $ \t -> do
-        i <- MU.read ix (t+1)
-        MU.write ix t $ psis V.! (t+1) U.! i
-      U.freeze ix
-    logL = U.maximum $ deltas V.! (n-1)
+        i <- MU.unsafeRead ix (t+1)
+        MU.unsafeWrite ix t $ U.unsafeIndex (V.unsafeIndex psis (t+1)) i
+      U.unsafeFreeze ix
+    logL = U.maximum $ V.unsafeIndex deltas (n-1)
 
 baumWelch' :: HMM' -> U.Vector Int -> [(HMM', LogLikelihood)]
 baumWelch' model xs = zip models (tail logLs)
@@ -142,7 +146,7 @@ baumWelch1' model n xs = force (model', logL)
     -- Using the gamma and xi values, we obtain the optimal initial state
     -- probability vector, transition probability matrix, and emission
     -- probability matrix.
-    pi0  = gammas V.! 0
+    pi0  = V.unsafeIndex gammas 0
     w    = let ds = V.foldl1' (#+#) xis -- denominators
                ns = V.map U.sum ds      -- numerators
            in V.zipWith (>/) ds ns
@@ -164,20 +168,20 @@ baumWelch1' model n xs = force (model', logL)
 forward' :: HMM' -> Int -> U.Vector Int -> (V.Vector (U.Vector Double), U.Vector Double)
 {-# INLINE forward' #-}
 forward' model n xs = runST $ do
-  as <- MV.new n
-  cs <- MU.new n
-  let a0 = (phi' V.! (xs U.! 0)) >.> pi0
+  as <- MV.unsafeNew n
+  cs <- MU.unsafeNew n
+  let a0 = V.unsafeIndex phi' (U.unsafeIndex xs 0) >.> pi0
       c0 = 1 / U.sum a0
-  MV.write as 0 (c0 .> a0)
-  MU.write cs 0 c0
+  MV.unsafeWrite as 0 (c0 .> a0)
+  MU.unsafeWrite cs 0 c0
   forM_ [1..(n-1)] $ \t -> do
-    a <- MV.read as (t-1)
-    let a' = (phi' V.! (xs U.! t)) >.> (a <.# w)
+    a <- MV.unsafeRead as (t-1)
+    let a' = V.unsafeIndex phi' (U.unsafeIndex xs t) >.> (a <.# w)
         c' = 1 / U.sum a'
-    MV.write as t (c' .> a')
-    MU.write cs t c'
-  as' <- V.freeze as
-  cs' <- U.freeze cs
+    MV.unsafeWrite as t (c' .> a')
+    MU.unsafeWrite cs t c'
+  as' <- V.unsafeFreeze as
+  cs' <- U.unsafeFreeze cs
   return (as', cs')
   where
     pi0  = initialStateDist' model
@@ -188,16 +192,16 @@ forward' model n xs = runST $ do
 backward' :: HMM' -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (U.Vector Double)
 {-# INLINE backward' #-}
 backward' model n xs cs = runST $ do
-  bs <- MV.new n
+  bs <- MV.unsafeNew n
   let bE = U.replicate k 1
-      cE = cs U.! (n-1)
-  MV.write bs (n-1) $ cE .> bE
+      cE = U.unsafeIndex cs (n-1)
+  MV.unsafeWrite bs (n-1) $ cE .> bE
   forM_ (reverse [0..(n-2)]) $ \t -> do
-    b <- MV.read bs (t+1)
-    let b' = w #.> ((phi' V.! (xs U.! (t+1))) >.> b)
-        c' = cs U.! t
-    MV.write bs t $ c' .> b'
-  V.freeze bs
+    b <- MV.unsafeRead bs (t+1)
+    let b' = w #.> (V.unsafeIndex phi' (U.unsafeIndex xs (t+1)) >.> b)
+        c' = U.unsafeIndex cs t
+    MV.unsafeWrite bs t $ c' .> b'
+  V.unsafeFreeze bs
   where
     k    = nStates' model
     w    = transitionDist' model
@@ -210,7 +214,7 @@ posterior' model _ xs alphas betas cs = (gammas, xis)
   where
     gammas = V.zipWith3 (\a b c -> a >.> b >/ c) alphas betas (G.convert cs)
     xis    = V.zipWith3 (\a b x -> let w' = V.zipWith (.>) (G.convert a) w
-                                   in V.map ((phi' V.! x) >.> b >.>) w')
-               alphas (V.tail betas) (G.convert $ U.tail xs)
+                                   in V.map (V.unsafeIndex phi' x >.> b >.>) w')
+               alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xs)
     w    = transitionDist' model
     phi' = emissionDistT' model
