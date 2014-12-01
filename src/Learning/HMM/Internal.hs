@@ -74,15 +74,15 @@ init' n m = do
               }
 
 withEmission' :: HMM' -> U.Vector Int -> HMM'
-withEmission' model xs = model { emissionDistT' = phi' }
+withEmission' model xs = model { emissionDistT' = G.transpose phi }
   where
-    ss   = V.generate (nStates' model) id
-    os   = U.generate (nOutputs' model) id
-    phi' = let (path, _) = viterbi' model xs
-               freqs     = G.frequencies $ U.zip path xs
-               hists     = V.map (\s -> U.map (\o ->
-                                 M.findWithDefault 0 (s, o) freqs) os) ss
-           in V.map (\f -> f >/ U.sum f) hists
+    ss  = V.generate (nStates' model) id
+    os  = U.generate (nOutputs' model) id
+    phi = let (path, _) = viterbi' model xs
+              freqs     = G.frequencies $ U.zip path xs
+              hists     = V.map (\s -> U.map (\o ->
+                                M.findWithDefault 0 (s, o) freqs) os) ss
+          in V.map (\f -> f >/ U.sum f) hists
 
 viterbi' :: HMM' -> U.Vector Int -> (U.Vector Int, LogLikelihood)
 viterbi' model xs = (path, logL)

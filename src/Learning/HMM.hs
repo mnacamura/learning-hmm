@@ -33,13 +33,13 @@ import Learning.HMM.Internal
 data HMM s o = HMM { states  :: [s] -- ^ Hidden states
                    , outputs :: [o] -- ^ Outputs
                    , initialStateDist :: Categorical Double s
-                     -- ^ Categorical distribution of initial states
+                     -- ^ Categorical distribution of initial state
                    , transitionDist :: s -> Categorical Double s
-                     -- ^ Categorical distribution of next states
-                     --   conditioned by the previous states
+                     -- ^ Categorical distribution of next state
+                     --   conditioned by the previous state
                    , emissionDist :: s -> Categorical Double o
-                     -- ^ Categorical distribution of outputs conditioned
-                     --   by the hidden states
+                     -- ^ Categorical distribution of output conditioned
+                     --   by the hidden state
                    }
 
 instance (Show s, Show o) => Show (HMM s o) where
@@ -112,12 +112,13 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  first (V.toList . V.map (V.unsafeIndex ss) . G.convert) $ viterbi' model' xs'
+  first toStates $ viterbi' model' xs'
   where
-    ss     = V.fromList $ states model
+    ss'    = V.fromList $ states model
     os'    = V.fromList $ outputs model
     model' = toHMM' model
     xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
+    toStates = V.toList . V.map (V.unsafeIndex ss') . G.convert
 
 -- | @baumWelch model xs@ iteratively performs the Baum-Welch algorithm
 --   using the observed outputs @xs@, and returns a list of updated models
