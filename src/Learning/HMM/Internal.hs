@@ -53,21 +53,21 @@ data HMM' = HMM' { nStates'          :: Int -- ^ Number of states
                  }
 
 instance NFData HMM' where
-  rnf hmm' = rnf n `seq` rnf m `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
+  rnf hmm' = rnf k `seq` rnf l `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
     where
-      n    = nStates' hmm'
-      m    = nOutputs' hmm'
+      k    = nStates' hmm'
+      l    = nOutputs' hmm'
       pi0  = initialStateDist' hmm'
       w    = transitionDist' hmm'
       phi' = emissionDistT' hmm'
 
 init' :: Int -> Int -> RVar HMM'
-init' n m = do
-  pi0 <- U.fromList <$> stdSimplex (n-1)
-  w   <- V.fromList <$> replicateM n (U.fromList <$> stdSimplex (n-1))
-  phi <- V.fromList <$> replicateM n (U.fromList <$> stdSimplex (m-1))
-  return HMM' { nStates'          = n
-              , nOutputs'         = m
+init' k l = do
+  pi0 <- U.fromList <$> stdSimplex (k-1)
+  w   <- V.fromList <$> replicateM k (U.fromList <$> stdSimplex (k-1))
+  phi <- V.fromList <$> replicateM k (U.fromList <$> stdSimplex (l-1))
+  return HMM' { nStates'          = k
+              , nOutputs'         = l
               , initialStateDist' = pi0
               , transitionDist'   = w
               , emissionDistT'    = G.transpose phi
@@ -96,18 +96,18 @@ viterbi' model xs = (path, logL)
     (deltas, psis) = runST $ do
       ds <- MV.unsafeNew n
       ps <- MV.unsafeNew n
-      MV.unsafeWrite ds 0 $ U.map log (V.unsafeIndex phi' (U.unsafeIndex xs 0)) >+> U.map log pi0
-      MV.unsafeWrite ps 0 $ U.replicate k 0
+      let x0 = U.unsafeIndex xs 0
+      MV.unsafeWrite ds 0 $ U.map log (V.unsafeIndex phi' x0) >+> U.map log pi0
       forM_ [1..(n-1)] $ \t -> do
         d <- MV.unsafeRead ds (t-1)
-        let dws = V.map (\wj -> d >+> U.map log wj) w'
-        MV.unsafeWrite ds t $ U.map log (V.unsafeIndex phi' (U.unsafeIndex xs t)) >+> G.convert (V.map U.maximum dws)
+        let x   = U.unsafeIndex xs t
+            dws = V.map (\wj -> d >+> U.map log wj) w'
+        MV.unsafeWrite ds t $ U.map log (V.unsafeIndex phi' x) >+> G.convert (V.map U.maximum dws)
         MV.unsafeWrite ps t $ G.convert (V.map U.maxIndex dws)
       ds' <- V.unsafeFreeze ds
       ps' <- V.unsafeFreeze ps
       return (ds', ps')
       where
-        k    = nStates' model
         pi0  = initialStateDist' model
         w'   = G.transpose $ transitionDist' model
         phi' = emissionDistT' model
@@ -116,9 +116,10 @@ viterbi' model xs = (path, logL)
     path = runST $ do
       ix <- MU.unsafeNew n
       MU.unsafeWrite ix (n-1) $ U.maxIndex (V.unsafeIndex deltas (n-1))
-      forM_ (reverse [0..(n-2)]) $ \t -> do
-        i <- MU.unsafeRead ix (t+1)
-        MU.unsafeWrite ix t $ U.unsafeIndex (V.unsafeIndex psis (t+1)) i
+      forM_ [n-l | l <- [1..(n-1)]] $ \t -> do
+        i <- MU.unsafeRead ix t
+        let psi = V.unsafeIndex psis t
+        MU.unsafeWrite ix (t-1) $ U.unsafeIndex psi i
       U.unsafeFreeze ix
     logL = U.maximum $ V.unsafeIndex deltas (n-1)
 
@@ -153,9 +154,8 @@ baumWelch1' model n xs = force (model', logL)
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert xs) gammas
                ds    = V.foldl1' (>+>) . gs'  -- denominators
                ns    = V.foldl1' (>+>) gammas -- numerators
+               os    = V.generate (nOutputs' model) id
            in V.map (\o -> ds o >/> ns) os
-      where
-        os = V.generate (nOutputs' model) id
 
     -- We finally obtain the new model and the likelihood for the old model.
     model' = model { initialStateDist' = pi0
@@ -170,13 +170,15 @@ forward' :: HMM' -> Int -> U.Vector Int -> (V.Vector (U.Vector Double), U.Vector
 forward' model n xs = runST $ do
   as <- MV.unsafeNew n
   cs <- MU.unsafeNew n
-  let a0 = V.unsafeIndex phi' (U.unsafeIndex xs 0) >.> pi0
+  let x0 = U.unsafeIndex xs 0
+      a0 = V.unsafeIndex phi' x0 >.> pi0
       c0 = 1 / U.sum a0
   MV.unsafeWrite as 0 (c0 .> a0)
   MU.unsafeWrite cs 0 c0
   forM_ [1..(n-1)] $ \t -> do
     a <- MV.unsafeRead as (t-1)
-    let a' = V.unsafeIndex phi' (U.unsafeIndex xs t) >.> (a <.# w)
+    let x  = U.unsafeIndex xs t
+        a' = V.unsafeIndex phi' x >.> (a <.# w)
         c' = 1 / U.sum a'
     MV.unsafeWrite as t (c' .> a')
     MU.unsafeWrite cs t c'
@@ -196,11 +198,12 @@ backward' model n xs cs = runST $ do
   let bE = U.replicate k 1
       cE = U.unsafeIndex cs (n-1)
   MV.unsafeWrite bs (n-1) $ cE .> bE
-  forM_ (reverse [0..(n-2)]) $ \t -> do
-    b <- MV.unsafeRead bs (t+1)
-    let b' = w #.> (V.unsafeIndex phi' (U.unsafeIndex xs (t+1)) >.> b)
-        c' = U.unsafeIndex cs t
-    MV.unsafeWrite bs t $ c' .> b'
+  forM_ [n-l | l <- [1..(n-1)]] $ \t -> do
+    b <- MV.unsafeRead bs t
+    let x  = U.unsafeIndex xs t
+        b' = w #.> (V.unsafeIndex phi' x >.> b)
+        c' = U.unsafeIndex cs (t-1)
+    MV.unsafeWrite bs (t-1) $ c' .> b'
   V.unsafeFreeze bs
   where
     k    = nStates' model
