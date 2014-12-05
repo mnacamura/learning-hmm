@@ -28,12 +28,12 @@ library
   other-modules:     Data.Random.Distribution.Categorical.Util
                    , Data.Random.Distribution.Simplex
                    , Data.Vector.Generic.Util
-                   , Data.Vector.Generic.Util.LinearAlgebra
                    , Learning.HMM.Internal
   -- other-extensions:  
   build-depends:     base >=4.7 && <4.8
                    , containers
                    , deepseq
+                   , hmatrix < 0.16.1
                    , random-fu
                    , random-source
                    , vector

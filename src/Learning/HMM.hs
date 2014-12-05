@@ -22,10 +22,15 @@ import qualified Data.Random.Distribution.Categorical as C (
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
-import qualified Data.Vector as V (elemIndex, fromList, map, toList, unsafeIndex)
+import qualified Data.Vector as V (
+    elemIndex, fromList, map, toList, unsafeIndex
+  )
 import qualified Data.Vector.Generic as G (convert)
-import qualified Data.Vector.Generic.Util.LinearAlgebra as G (transpose)
-import qualified Data.Vector.Unboxed as U (fromList, toList)
+import qualified Data.Vector.Unboxed as U (fromList)
+import qualified Numeric.LinearAlgebra.Data as H (
+    (!), fromList, fromLists, toList
+  )
+import qualified Numeric.LinearAlgebra.HMatrix as H (tr)
 import Learning.HMM.Internal
 
 -- | Parameter set of the hidden Markov model. Direct use of the
@@ -189,29 +194,29 @@ fromHMM' ss os hmm' = HMM { states           = ss
   where
     pi0 = initialStateDist' hmm'
     w   = transitionDist' hmm'
-    phi = G.transpose $ emissionDistT' hmm'
-    pi0'   = zip (U.toList pi0) ss
-    w' i   = zip (U.toList $ V.unsafeIndex w i) ss
-    phi' i = zip (U.toList $ V.unsafeIndex phi i) os
+    phi = H.tr $ emissionDistT' hmm'
+    pi0'   = zip (H.toList pi0) ss
+    w' i   = zip (H.toList $ w H.! i) ss
+    phi' i = zip (H.toList $ phi H.! i) os
 
 -- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
 --   and 'emissionDistT'' are normalized.
 toHMM' :: (Eq s, Eq o) => HMM s o -> HMM'
 toHMM' hmm = HMM' { nStates'          = length ss
                   , nOutputs'         = length os
-                  , initialStateDist' = U.fromList pi0'
-                  , transitionDist'   = V.fromList w'
-                  , emissionDistT'    = V.fromList phi'
+                  , initialStateDist' = pi0
+                  , transitionDist'   = w
+                  , emissionDistT'    = phi'
                   }
   where
-    ss  = states hmm
-    os  = outputs hmm
-    pi0 = C.normalizeCategoricalPs $ initialStateDist hmm
-    w   = C.normalizeCategoricalPs . transitionDist hmm
-    phi = C.normalizeCategoricalPs . emissionDist hmm
-    pi0' = [pdf pi0 s | s <- ss]
-    w'   = [U.fromList [pdf (w s) s' | s' <- ss] | s <- ss]
-    phi' = [U.fromList [pdf (phi s) o | s <- ss] | o <- os]
+    ss   = states hmm
+    os   = outputs hmm
+    pi0_ = C.normalizeCategoricalPs $ initialStateDist hmm
+    w_   = C.normalizeCategoricalPs . transitionDist hmm
+    phi_ = C.normalizeCategoricalPs . emissionDist hmm
+    pi0  = H.fromList [pdf pi0_ s | s <- ss]
+    w    = H.fromLists [[pdf (w_ s) s' | s' <- ss] | s <- ss]
+    phi' = H.fromLists [[pdf (phi_ s) o | s <- ss] | o <- os]
 
 errorIn :: String -> String -> a
 errorIn fun msg = error $ "Learning.HMM." ++ fun ++ ": " ++ msg

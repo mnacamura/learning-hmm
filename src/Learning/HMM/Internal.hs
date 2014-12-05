@@ -18,25 +18,26 @@ import qualified Data.Map.Strict as M (findWithDefault)
 import Data.Random.RVar (RVar)
 import Data.Random.Distribution.Simplex (stdSimplex)
 import qualified Data.Vector as V (
-    Vector, filter, foldl1', fromList, generate, map
-  , unsafeFreeze, unsafeIndex, unsafeTail, zip, zipWith, zipWith3
+    Vector, filter, foldl1', map, unsafeFreeze, unsafeIndex, unsafeTail
+  , zip, zipWith3
   )
 import qualified Data.Vector.Generic as G (convert)
 import qualified Data.Vector.Generic.Util as G (frequencies)
-import Data.Vector.Generic.Util.LinearAlgebra (
-    (>+>), (>.>), (>/>), (#+#), (.>), (>/), (#.>), (<.#)
-  )
-import qualified Data.Vector.Generic.Util.LinearAlgebra as G (transpose)
 import qualified Data.Vector.Mutable as MV (
     unsafeNew, unsafeRead, unsafeWrite
   )
 import qualified Data.Vector.Unboxed as U (
-    Vector, fromList, generate, length, map, maxIndex, maximum
-  , replicate, sum, unsafeFreeze, unsafeIndex, unsafeTail, zip
+    Vector, fromList, length, map, sum, unsafeFreeze, unsafeIndex
+  , unsafeTail, zip
   )
 import qualified Data.Vector.Unboxed.Mutable as MU (
     unsafeNew, unsafeRead, unsafeWrite
   )
+import qualified Numeric.LinearAlgebra.Data as H (
+    (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows
+  , konst, maxElement, maxIndex, toColumns, tr
+  )
+import qualified Numeric.LinearAlgebra.HMatrix as H ((<>), (#>), sumElements)
 
 type LogLikelihood = Double
 
@@ -47,9 +48,9 @@ type LogLikelihood = Double
 --   in order to simplify the calculation.
 data HMM' = HMM' { nStates'          :: Int -- ^ Number of states
                  , nOutputs'         :: Int -- ^ Number of outputs
-                 , initialStateDist' :: U.Vector Double
-                 , transitionDist'   :: V.Vector (U.Vector Double)
-                 , emissionDistT'    :: V.Vector (U.Vector Double)
+                 , initialStateDist' :: H.Vector Double
+                 , transitionDist'   :: H.Matrix Double
+                 , emissionDistT'    :: H.Matrix Double
                  }
 
 instance NFData HMM' where
@@ -63,26 +64,27 @@ instance NFData HMM' where
 
 init' :: Int -> Int -> RVar HMM'
 init' k l = do
-  pi0 <- U.fromList <$> stdSimplex (k-1)
-  w   <- V.fromList <$> replicateM k (U.fromList <$> stdSimplex (k-1))
-  phi <- V.fromList <$> replicateM k (U.fromList <$> stdSimplex (l-1))
+  pi0 <- H.fromList <$> stdSimplex (k-1)
+  w   <- H.fromLists <$> replicateM k (stdSimplex (k-1))
+  phi <- H.fromLists <$> replicateM k (stdSimplex (l-1))
   return HMM' { nStates'          = k
               , nOutputs'         = l
               , initialStateDist' = pi0
               , transitionDist'   = w
-              , emissionDistT'    = G.transpose phi
+              , emissionDistT'    = H.tr phi
               }
 
 withEmission' :: HMM' -> U.Vector Int -> HMM'
-withEmission' model xs = model { emissionDistT' = G.transpose phi }
+withEmission' model xs = model { emissionDistT' = phi' }
   where
-    ss  = V.generate (nStates' model) id
-    os  = U.generate (nOutputs' model) id
-    phi = let (path, _) = viterbi' model xs
-              freqs     = G.frequencies $ U.zip path xs
-              hists     = V.map (\s -> U.map (\o ->
-                                M.findWithDefault 0 (s, o) freqs) os) ss
-          in V.map (\f -> f >/ U.sum f) hists
+    k    = nStates' model
+    l    = nOutputs' model
+    ss   = [0..(k-1)]
+    os   = [0..(l-1)]
+    phi' = let path  = fst $ viterbi' model xs
+               freqs = G.frequencies $ U.zip path xs
+               hists = map (\s -> map (\o -> M.findWithDefault 0 (s, o) freqs) os) ss
+           in H.fromColumns $ map ((\v -> v / H.konst (H.sumElements v) k) . H.fromList) hists
 
 viterbi' :: HMM' -> U.Vector Int -> (U.Vector Int, LogLikelihood)
 viterbi' model xs = (path, logL)
@@ -91,37 +93,39 @@ viterbi' model xs = (path, logL)
 
     -- First, we calculate the value function and the state maximizing it
     -- for each time.
-    deltas :: V.Vector (U.Vector Double)
+    deltas :: V.Vector (H.Vector Double)
     psis   :: V.Vector (U.Vector Int)
     (deltas, psis) = runST $ do
       ds <- MV.unsafeNew n
       ps <- MV.unsafeNew n
       let x0 = U.unsafeIndex xs 0
-      MV.unsafeWrite ds 0 $ U.map log (V.unsafeIndex phi' x0) >+> U.map log pi0
+      MV.unsafeWrite ds 0 $ log (phi' H.! x0) + log pi0
       forM_ [1..(n-1)] $ \t -> do
         d <- MV.unsafeRead ds (t-1)
         let x   = U.unsafeIndex xs t
-            dws = V.map (\wj -> d >+> U.map log wj) w'
-        MV.unsafeWrite ds t $ U.map log (V.unsafeIndex phi' x) >+> G.convert (V.map U.maximum dws)
-        MV.unsafeWrite ps t $ G.convert (V.map U.maxIndex dws)
+            dws = map (\wj -> d + log wj) w'
+        MV.unsafeWrite ds t $ log (phi' H.! x) + H.fromList (map H.maxElement dws)
+        MV.unsafeWrite ps t $ U.fromList (map H.maxIndex dws)
       ds' <- V.unsafeFreeze ds
       ps' <- V.unsafeFreeze ps
       return (ds', ps')
       where
         pi0  = initialStateDist' model
-        w'   = G.transpose $ transitionDist' model
+        w'   = H.toColumns $ transitionDist' model
         phi' = emissionDistT' model
+
+    deltaE = V.unsafeIndex deltas (n-1)
 
     -- The most likely path and corresponding log likelihood are as follows.
     path = runST $ do
       ix <- MU.unsafeNew n
-      MU.unsafeWrite ix (n-1) $ U.maxIndex (V.unsafeIndex deltas (n-1))
+      MU.unsafeWrite ix (n-1) $ H.maxIndex deltaE
       forM_ [n-l | l <- [1..(n-1)]] $ \t -> do
         i <- MU.unsafeRead ix t
         let psi = V.unsafeIndex psis t
         MU.unsafeWrite ix (t-1) $ U.unsafeIndex psi i
       U.unsafeFreeze ix
-    logL = U.maximum $ V.unsafeIndex deltas (n-1)
+    logL = H.maxElement deltaE
 
 baumWelch' :: HMM' -> U.Vector Int -> [(HMM', LogLikelihood)]
 baumWelch' model xs = zip models (tail logLs)
@@ -135,6 +139,9 @@ baumWelch' model xs = zip models (tail logLs)
 baumWelch1' :: HMM' -> Int -> U.Vector Int -> (HMM', LogLikelihood)
 baumWelch1' model n xs = force (model', logL)
   where
+    k = nStates' model
+    l = nOutputs' model
+
     -- First, we calculate the alpha, beta, and scaling values using the
     -- forward-backward algorithm.
     (alphas, cs) = forward' model n xs
@@ -148,14 +155,13 @@ baumWelch1' model n xs = force (model', logL)
     -- probability vector, transition probability matrix, and emission
     -- probability matrix.
     pi0  = V.unsafeIndex gammas 0
-    w    = let ds = V.foldl1' (#+#) xis -- denominators
-               ns = V.map U.sum ds      -- numerators
-           in V.zipWith (>/) ds ns
+    w    = let ds = V.foldl1' (+) xis   -- denominators
+               ns = ds H.#> H.konst 1 k -- numerators
+           in H.diag (H.konst 1 k / ns) H.<> ds
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert xs) gammas
-               ds    = V.foldl1' (>+>) . gs'  -- denominators
-               ns    = V.foldl1' (>+>) gammas -- numerators
-               os    = V.generate (nOutputs' model) id
-           in V.map (\o -> ds o >/> ns) os
+               ds    = V.foldl1' (+) . gs'  -- denominators
+               ns    = V.foldl1' (+) gammas -- numerators
+           in H.fromRows $ map (\o -> ds o / ns) [0..(l-1)]
 
     -- We finally obtain the new model and the likelihood for the old model.
     model' = model { initialStateDist' = pi0
@@ -165,45 +171,46 @@ baumWelch1' model n xs = force (model', logL)
     logL = - (U.sum $ U.map log cs)
 
 -- | Return alphas and scaling variables.
-forward' :: HMM' -> Int -> U.Vector Int -> (V.Vector (U.Vector Double), U.Vector Double)
+forward' :: HMM' -> Int -> U.Vector Int -> (V.Vector (H.Vector Double), U.Vector Double)
 {-# INLINE forward' #-}
 forward' model n xs = runST $ do
   as <- MV.unsafeNew n
   cs <- MU.unsafeNew n
   let x0 = U.unsafeIndex xs 0
-      a0 = V.unsafeIndex phi' x0 >.> pi0
-      c0 = 1 / U.sum a0
-  MV.unsafeWrite as 0 (c0 .> a0)
+      a0 = (phi' H.! x0) * pi0
+      c0 = 1 / H.sumElements a0
+  MV.unsafeWrite as 0 (H.konst c0 k * a0)
   MU.unsafeWrite cs 0 c0
   forM_ [1..(n-1)] $ \t -> do
     a <- MV.unsafeRead as (t-1)
     let x  = U.unsafeIndex xs t
-        a' = V.unsafeIndex phi' x >.> (a <.# w)
-        c' = 1 / U.sum a'
-    MV.unsafeWrite as t (c' .> a')
+        a' = (phi' H.! x) * (w' H.#> a)
+        c' = 1 / H.sumElements a'
+    MV.unsafeWrite as t (H.konst c' k * a')
     MU.unsafeWrite cs t c'
   as' <- V.unsafeFreeze as
   cs' <- U.unsafeFreeze cs
   return (as', cs')
   where
+    k    = nStates' model
     pi0  = initialStateDist' model
-    w    = transitionDist' model
+    w'   = H.tr $ transitionDist' model
     phi' = emissionDistT' model
 
 -- | Return betas using scaling variables.
-backward' :: HMM' -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (U.Vector Double)
+backward' :: HMM' -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (H.Vector Double)
 {-# INLINE backward' #-}
 backward' model n xs cs = runST $ do
   bs <- MV.unsafeNew n
-  let bE = U.replicate k 1
+  let bE = H.konst 1 k
       cE = U.unsafeIndex cs (n-1)
-  MV.unsafeWrite bs (n-1) $ cE .> bE
+  MV.unsafeWrite bs (n-1) (H.konst cE k * bE)
   forM_ [n-l | l <- [1..(n-1)]] $ \t -> do
     b <- MV.unsafeRead bs t
     let x  = U.unsafeIndex xs t
-        b' = w #.> (V.unsafeIndex phi' x >.> b)
+        b' = w H.#> ((phi' H.! x) * b)
         c' = U.unsafeIndex cs (t-1)
-    MV.unsafeWrite bs (t-1) $ c' .> b'
+    MV.unsafeWrite bs (t-1) (H.konst c' k * b')
   V.unsafeFreeze bs
   where
     k    = nStates' model
@@ -211,13 +218,14 @@ backward' model n xs cs = runST $ do
     phi' = emissionDistT' model
 
 -- | Return the posterior distribution.
-posterior' :: HMM' -> Int -> U.Vector Int -> V.Vector (U.Vector Double) -> V.Vector (U.Vector Double) -> U.Vector Double -> (V.Vector (U.Vector Double), V.Vector (V.Vector (U.Vector Double)))
+posterior' :: HMM' -> Int -> U.Vector Int -> V.Vector (H.Vector Double) -> V.Vector (H.Vector Double) -> U.Vector Double -> (V.Vector (H.Vector Double), V.Vector (H.Matrix Double))
 {-# INLINE posterior' #-}
 posterior' model _ xs alphas betas cs = (gammas, xis)
   where
-    gammas = V.zipWith3 (\a b c -> a >.> b >/ c) alphas betas (G.convert cs)
-    xis    = V.zipWith3 (\a b x -> let w' = V.zipWith (.>) (G.convert a) w
-                                   in V.map (V.unsafeIndex phi' x >.> b >.>) w')
+    gammas = V.zipWith3 (\a b c -> a * b / H.konst c k)
+               alphas betas (G.convert cs)
+    xis    = V.zipWith3 (\a b x -> H.diag a H.<> w H.<> H.diag (b * (phi' H.! x)))
                alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xs)
+    k    = nStates' model
     w    = transitionDist' model
     phi' = emissionDistT' model
