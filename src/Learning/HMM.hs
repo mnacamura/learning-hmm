@@ -97,10 +97,10 @@ init :: (Eq s, Eq o) => [s] -> [o] -> RVar (HMM s o)
 init ss os = fromHMM' ss os <$> init' (length ss) (length os)
 
 -- | @model \`withEmission\` xs@ returns a model in which the
---   'emissionDist' is updated by using the observed outputs @xs@. The
---   'emissionDist' is set to be normalized histograms each of which is
---   calculated from a partial set of @xs@ for each state. The partition is
---   based on the most likely state path obtained by the Viterbi algorithm.
+--   'emissionDist' is updated by re-estimations using the observed outputs
+--   @xs@. The 'emissionDist' is set to be normalized histograms each of
+--   which is calculated from segumentations of @xs@ based on the Viterbi
+--   state path.
 withEmission :: (Eq s, Eq o) => HMM s o -> [o] -> HMM s o
 withEmission model xs = fromHMM' ss os $ withEmission' model' xs'
   where

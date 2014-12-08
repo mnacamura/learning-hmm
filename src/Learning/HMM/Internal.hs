@@ -34,10 +34,12 @@ import qualified Data.Vector.Unboxed.Mutable as MU (
     unsafeNew, unsafeRead, unsafeWrite
   )
 import qualified Numeric.LinearAlgebra.Data as H (
-    (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows
-  , konst, maxElement, maxIndex, toColumns, tr
+    (!), Matrix, Vector, diag, fromColumns, fromList, fromLists
+  , fromRows, konst, maxElement, maxIndex, toColumns, tr
   )
-import qualified Numeric.LinearAlgebra.HMatrix as H ((<>), (#>), sumElements)
+import qualified Numeric.LinearAlgebra.HMatrix as H (
+    (<>), (#>), sumElements
+  )
 
 type LogLikelihood = Double
 
@@ -75,16 +77,41 @@ init' k l = do
               }
 
 withEmission' :: HMM' -> U.Vector Int -> HMM'
-withEmission' model xs = model { emissionDistT' = phi' }
+withEmission' model xs = model'
   where
-    k    = nStates' model
-    l    = nOutputs' model
-    ss   = [0..(k-1)]
-    os   = [0..(l-1)]
-    phi' = let path  = fst $ viterbi' model xs
-               freqs = G.frequencies $ U.zip path xs
-               hists = map (\s -> map (\o -> M.findWithDefault 0 (s, o) freqs) os) ss
-           in H.fromColumns $ map ((\v -> v / H.konst (H.sumElements v) k) . H.fromList) hists
+    n = U.length xs
+    k = nStates' model
+    l = nOutputs' model
+    ss = [0..(k-1)]
+    os = [0..(l-1)]
+
+    step m = fst $ baumWelch1' (m { emissionDistT' = H.tr phi }) n xs
+      where
+        phi :: H.Matrix Double
+        phi = let zs  = fst $ viterbi' m xs
+                  fs  = G.frequencies $ U.zip zs xs
+                  hs  = H.fromLists $ map (\s -> map (\o ->
+                          M.findWithDefault 0 (s, o) fs) os) ss
+                  -- hs' is needed to not yield NaN vectors
+                  hs' = hs + H.konst 1e-9 (k, l)
+                  ns  = hs' H.#> H.konst 1 k
+              in hs' / H.fromColumns (replicate l ns)
+
+    ms  = iterate step model
+    ms' = tail ms
+    ds  = zipWith euclideanDistance ms ms'
+
+    model' = fst $ head $ dropWhile ((> 1e-9) . snd) $ zip ms' ds
+
+-- | Return the Euclidean distance between two models.
+euclideanDistance :: HMM' -> HMM' -> Double
+euclideanDistance model model' =
+  sqrt $ (H.sumElements $ (w - w') ** 2) + (H.sumElements $ (phi - phi') ** 2)
+  where
+    w    = transitionDist' model
+    w'   = transitionDist' model'
+    phi  = emissionDistT' model
+    phi' = emissionDistT' model'
 
 viterbi' :: HMM' -> U.Vector Int -> (U.Vector Int, LogLikelihood)
 viterbi' model xs = (path, logL)
