@@ -31,7 +31,8 @@ import qualified Numeric.LinearAlgebra.Data as H (
     (!), fromList, fromLists, toList
   )
 import qualified Numeric.LinearAlgebra.HMatrix as H (tr)
-import Learning.HMM.Internal
+import Learning.HMM.Internal (LogLikelihood)
+import qualified Learning.HMM.Internal as I
 
 -- | Parameter set of the hidden Markov model. Direct use of the
 --   constructor is not recommended. Instead, call 'new' or 'init'.
@@ -94,7 +95,7 @@ new ss os = HMM { states           = ss
 --   @states@ and @outputs@, wherein parameters are sampled from uniform
 --   distributions.
 init :: (Eq s, Eq o) => [s] -> [o] -> RVar (HMM s o)
-init ss os = fromHMM' ss os <$> init' (length ss) (length os)
+init ss os = fromInternal ss os <$> I.init (length ss) (length os)
 
 -- | @model \`withEmission\` xs@ returns a model in which the
 --   'emissionDist' is updated by re-estimations using the observed outputs
@@ -102,12 +103,12 @@ init ss os = fromHMM' ss os <$> init' (length ss) (length os)
 --   which is calculated from segumentations of @xs@ based on the Viterbi
 --   state path.
 withEmission :: (Eq s, Eq o) => HMM s o -> [o] -> HMM s o
-withEmission model xs = fromHMM' ss os $ withEmission' model' xs'
+withEmission model xs = fromInternal ss os $ I.withEmission model' xs'
   where
     ss     = states model
     os     = outputs model
     os'    = V.fromList os
-    model' = toHMM' model
+    model' = toInternal model
     xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @viterbi model xs@ performs the Viterbi algorithm using the observed
@@ -117,11 +118,11 @@ viterbi :: (Eq s, Eq o) => HMM s o -> [o] -> ([s], LogLikelihood)
 viterbi model xs =
   checkModelIn "viterbi" model `seq`
   checkDataIn "viterbi" model xs `seq`
-  first toStates $ viterbi' model' xs'
+  first toStates $ I.viterbi model' xs'
   where
     ss'    = V.fromList $ states model
     os'    = V.fromList $ outputs model
-    model' = toHMM' model
+    model' = toInternal model
     xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
     toStates = V.toList . V.map (V.unsafeIndex ss') . G.convert
 
@@ -132,12 +133,12 @@ baumWelch :: (Eq s, Eq o) => HMM s o -> [o] -> [(HMM s o, LogLikelihood)]
 baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
   checkDataIn "baumWelch" model xs `seq`
-  map (first $ fromHMM' ss os) $ baumWelch' model' xs'
+  map (first $ fromInternal ss os) $ I.baumWelch model' xs'
   where
     ss     = states model
     os     = outputs model
     os'    = V.fromList os
-    model' = toHMM' model
+    model' = toInternal model
     xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @simulate model t@ generates a Markov process of length @t@ using the
@@ -179,35 +180,35 @@ checkDataIn fun hmm xs
     os = outputs hmm
     err = errorIn fun
 
--- | Convert 'HMM'' to 'HMM'.
-fromHMM' :: (Eq s, Eq o) => [s] -> [o] -> HMM' -> HMM s o
-fromHMM' ss os hmm' = HMM { states           = ss
-                          , outputs          = os
-                          , initialStateDist = C.fromList pi0'
-                          , transitionDist   = \s -> case elemIndex s ss of
-                                                       Nothing -> C.fromList []
-                                                       Just i  -> C.fromList $ w' i
-                          , emissionDist     = \s -> case elemIndex s ss of
-                                                       Nothing -> C.fromList []
-                                                       Just i  -> C.fromList $ phi' i
-                          }
+-- | Convert internal 'HMM' to 'HMM'.
+fromInternal :: (Eq s, Eq o) => [s] -> [o] -> I.HMM -> HMM s o
+fromInternal ss os hmm' = HMM { states           = ss
+                              , outputs          = os
+                              , initialStateDist = C.fromList pi0'
+                              , transitionDist   = \s -> case elemIndex s ss of
+                                                           Nothing -> C.fromList []
+                                                           Just i  -> C.fromList $ w' i
+                              , emissionDist     = \s -> case elemIndex s ss of
+                                                           Nothing -> C.fromList []
+                                                           Just i  -> C.fromList $ phi' i
+                              }
   where
-    pi0 = initialStateDist' hmm'
-    w   = transitionDist' hmm'
-    phi = H.tr $ emissionDistT' hmm'
+    pi0 = I.initialStateDist hmm'
+    w   = I.transitionDist hmm'
+    phi = H.tr $ I.emissionDistT hmm'
     pi0'   = zip (H.toList pi0) ss
     w' i   = zip (H.toList $ w H.! i) ss
     phi' i = zip (H.toList $ phi H.! i) os
 
--- | Convert 'HMM' to 'HMM''. The 'initialStateDist'', 'transitionDist'',
---   and 'emissionDistT'' are normalized.
-toHMM' :: (Eq s, Eq o) => HMM s o -> HMM'
-toHMM' hmm = HMM' { nStates'          = length ss
-                  , nOutputs'         = length os
-                  , initialStateDist' = pi0
-                  , transitionDist'   = w
-                  , emissionDistT'    = phi'
-                  }
+-- | Convert 'HMM' to internal 'HMM'. The 'initialStateDist'',
+--   'transitionDist'', and 'emissionDistT'' are normalized.
+toInternal :: (Eq s, Eq o) => HMM s o -> I.HMM
+toInternal hmm = I.HMM { I.nStates          = length ss
+                       , I.nOutputs         = length os
+                       , I.initialStateDist = pi0
+                       , I.transitionDist   = w
+                       , I.emissionDistT    = phi'
+                       }
   where
     ss   = states hmm
     os   = outputs hmm

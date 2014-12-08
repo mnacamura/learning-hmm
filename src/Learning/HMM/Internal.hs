@@ -1,15 +1,16 @@
 module Learning.HMM.Internal (
-    HMM' (..)
+    HMM (..)
   , LogLikelihood
-  , init'
-  , withEmission'
-  , viterbi'
-  , baumWelch'
-  -- , baumWelch1'
-  -- , forward'
-  -- , backward'
+  , init
+  , withEmission
+  , viterbi
+  , baumWelch
+  -- , baumWelch1
+  -- , forward
+  -- , backward
   ) where
 
+import Prelude hiding (init)
 import Control.Applicative ((<$>))
 import Control.DeepSeq (NFData, force, rnf)
 import Control.Monad (forM_, replicateM)
@@ -46,49 +47,49 @@ type LogLikelihood = Double
 -- | More efficient data structure of the 'HMM' model. The 'states' and
 --   'outputs' in 'HMM' are represented by their indices. The
 --   'initialStateDist', 'transitionDist', and 'emissionDist' are
---   represented by matrices. The 'emissionDistT'' is a transposed matrix
+--   represented by matrices. The 'emissionDistT' is a transposed matrix
 --   in order to simplify the calculation.
-data HMM' = HMM' { nStates'          :: Int -- ^ Number of states
-                 , nOutputs'         :: Int -- ^ Number of outputs
-                 , initialStateDist' :: H.Vector Double
-                 , transitionDist'   :: H.Matrix Double
-                 , emissionDistT'    :: H.Matrix Double
-                 }
+data HMM = HMM { nStates          :: Int -- ^ Number of states
+               , nOutputs         :: Int -- ^ Number of outputs
+               , initialStateDist :: H.Vector Double
+               , transitionDist   :: H.Matrix Double
+               , emissionDistT    :: H.Matrix Double
+               }
 
-instance NFData HMM' where
-  rnf hmm' = rnf k `seq` rnf l `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
+instance NFData HMM where
+  rnf hmm = rnf k `seq` rnf l `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
     where
-      k    = nStates' hmm'
-      l    = nOutputs' hmm'
-      pi0  = initialStateDist' hmm'
-      w    = transitionDist' hmm'
-      phi' = emissionDistT' hmm'
+      k    = nStates hmm
+      l    = nOutputs hmm
+      pi0  = initialStateDist hmm
+      w    = transitionDist hmm
+      phi' = emissionDistT hmm
 
-init' :: Int -> Int -> RVar HMM'
-init' k l = do
+init :: Int -> Int -> RVar HMM
+init k l = do
   pi0 <- H.fromList <$> stdSimplex (k-1)
   w   <- H.fromLists <$> replicateM k (stdSimplex (k-1))
   phi <- H.fromLists <$> replicateM k (stdSimplex (l-1))
-  return HMM' { nStates'          = k
-              , nOutputs'         = l
-              , initialStateDist' = pi0
-              , transitionDist'   = w
-              , emissionDistT'    = H.tr phi
-              }
+  return HMM { nStates          = k
+             , nOutputs         = l
+             , initialStateDist = pi0
+             , transitionDist   = w
+             , emissionDistT    = H.tr phi
+             }
 
-withEmission' :: HMM' -> U.Vector Int -> HMM'
-withEmission' model xs = model'
+withEmission :: HMM -> U.Vector Int -> HMM
+withEmission model xs = model'
   where
     n = U.length xs
-    k = nStates' model
-    l = nOutputs' model
+    k = nStates model
+    l = nOutputs model
     ss = [0..(k-1)]
     os = [0..(l-1)]
 
-    step m = fst $ baumWelch1' (m { emissionDistT' = H.tr phi }) n xs
+    step m = fst $ baumWelch1 (m { emissionDistT = H.tr phi }) n xs
       where
         phi :: H.Matrix Double
-        phi = let zs  = fst $ viterbi' m xs
+        phi = let zs  = fst $ viterbi m xs
                   fs  = G.frequencies $ U.zip zs xs
                   hs  = H.fromLists $ map (\s -> map (\o ->
                           M.findWithDefault 0 (s, o) fs) os) ss
@@ -104,17 +105,17 @@ withEmission' model xs = model'
     model' = fst $ head $ dropWhile ((> 1e-9) . snd) $ zip ms' ds
 
 -- | Return the Euclidean distance between two models.
-euclideanDistance :: HMM' -> HMM' -> Double
+euclideanDistance :: HMM -> HMM -> Double
 euclideanDistance model model' =
   sqrt $ (H.sumElements $ (w - w') ** 2) + (H.sumElements $ (phi - phi') ** 2)
   where
-    w    = transitionDist' model
-    w'   = transitionDist' model'
-    phi  = emissionDistT' model
-    phi' = emissionDistT' model'
+    w    = transitionDist model
+    w'   = transitionDist model'
+    phi  = emissionDistT model
+    phi' = emissionDistT model'
 
-viterbi' :: HMM' -> U.Vector Int -> (U.Vector Int, LogLikelihood)
-viterbi' model xs = (path, logL)
+viterbi :: HMM -> U.Vector Int -> (U.Vector Int, LogLikelihood)
+viterbi model xs = (path, logL)
   where
     n = U.length xs
 
@@ -137,9 +138,9 @@ viterbi' model xs = (path, logL)
       ps' <- V.unsafeFreeze ps
       return (ds', ps')
       where
-        pi0  = initialStateDist' model
-        w'   = H.toColumns $ transitionDist' model
-        phi' = emissionDistT' model
+        pi0  = initialStateDist model
+        w'   = H.toColumns $ transitionDist model
+        phi' = emissionDistT model
 
     deltaE = V.unsafeIndex deltas (n-1)
 
@@ -154,29 +155,29 @@ viterbi' model xs = (path, logL)
       U.unsafeFreeze ix
     logL = H.maxElement deltaE
 
-baumWelch' :: HMM' -> U.Vector Int -> [(HMM', LogLikelihood)]
-baumWelch' model xs = zip models (tail logLs)
+baumWelch :: HMM -> U.Vector Int -> [(HMM, LogLikelihood)]
+baumWelch model xs = zip models (tail logLs)
   where
     n = U.length xs
-    step (m, _)     = baumWelch1' m n xs
+    step (m, _)     = baumWelch1 m n xs
     (models, logLs) = unzip $ iterate step (model, undefined)
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.
-baumWelch1' :: HMM' -> Int -> U.Vector Int -> (HMM', LogLikelihood)
-baumWelch1' model n xs = force (model', logL)
+baumWelch1 :: HMM -> Int -> U.Vector Int -> (HMM, LogLikelihood)
+baumWelch1 model n xs = force (model', logL)
   where
-    k = nStates' model
-    l = nOutputs' model
+    k = nStates model
+    l = nOutputs model
 
     -- First, we calculate the alpha, beta, and scaling values using the
     -- forward-backward algorithm.
-    (alphas, cs) = forward' model n xs
-    betas        = backward' model n xs cs
+    (alphas, cs) = forward model n xs
+    betas        = backward model n xs cs
 
     -- Based on the alpha, beta, and scaling values, we calculate the
     -- posterior distribution, i.e., gamma and xi values.
-    (gammas, xis) = posterior' model n xs alphas betas cs
+    (gammas, xis) = posterior model n xs alphas betas cs
 
     -- Using the gamma and xi values, we obtain the optimal initial state
     -- probability vector, transition probability matrix, and emission
@@ -191,16 +192,16 @@ baumWelch1' model n xs = force (model', logL)
            in H.fromRows $ map (\o -> ds o / ns) [0..(l-1)]
 
     -- We finally obtain the new model and the likelihood for the old model.
-    model' = model { initialStateDist' = pi0
-                   , transitionDist'   = w
-                   , emissionDistT'    = phi'
+    model' = model { initialStateDist = pi0
+                   , transitionDist   = w
+                   , emissionDistT    = phi'
                    }
     logL = - (U.sum $ U.map log cs)
 
 -- | Return alphas and scaling variables.
-forward' :: HMM' -> Int -> U.Vector Int -> (V.Vector (H.Vector Double), U.Vector Double)
-{-# INLINE forward' #-}
-forward' model n xs = runST $ do
+forward :: HMM -> Int -> U.Vector Int -> (V.Vector (H.Vector Double), U.Vector Double)
+{-# INLINE forward #-}
+forward model n xs = runST $ do
   as <- MV.unsafeNew n
   cs <- MU.unsafeNew n
   let x0 = U.unsafeIndex xs 0
@@ -219,15 +220,15 @@ forward' model n xs = runST $ do
   cs' <- U.unsafeFreeze cs
   return (as', cs')
   where
-    k    = nStates' model
-    pi0  = initialStateDist' model
-    w'   = H.tr $ transitionDist' model
-    phi' = emissionDistT' model
+    k    = nStates model
+    pi0  = initialStateDist model
+    w'   = H.tr $ transitionDist model
+    phi' = emissionDistT model
 
 -- | Return betas using scaling variables.
-backward' :: HMM' -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (H.Vector Double)
-{-# INLINE backward' #-}
-backward' model n xs cs = runST $ do
+backward :: HMM -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (H.Vector Double)
+{-# INLINE backward #-}
+backward model n xs cs = runST $ do
   bs <- MV.unsafeNew n
   let bE = H.konst 1 k
       cE = U.unsafeIndex cs (n-1)
@@ -240,19 +241,19 @@ backward' model n xs cs = runST $ do
     MV.unsafeWrite bs (t-1) (H.konst c' k * b')
   V.unsafeFreeze bs
   where
-    k    = nStates' model
-    w    = transitionDist' model
-    phi' = emissionDistT' model
+    k    = nStates model
+    w    = transitionDist model
+    phi' = emissionDistT model
 
 -- | Return the posterior distribution.
-posterior' :: HMM' -> Int -> U.Vector Int -> V.Vector (H.Vector Double) -> V.Vector (H.Vector Double) -> U.Vector Double -> (V.Vector (H.Vector Double), V.Vector (H.Matrix Double))
-{-# INLINE posterior' #-}
-posterior' model _ xs alphas betas cs = (gammas, xis)
+posterior :: HMM -> Int -> U.Vector Int -> V.Vector (H.Vector Double) -> V.Vector (H.Vector Double) -> U.Vector Double -> (V.Vector (H.Vector Double), V.Vector (H.Matrix Double))
+{-# INLINE posterior #-}
+posterior model _ xs alphas betas cs = (gammas, xis)
   where
     gammas = V.zipWith3 (\a b c -> a * b / H.konst c k)
                alphas betas (G.convert cs)
     xis    = V.zipWith3 (\a b x -> H.diag a H.<> w H.<> H.diag (b * (phi' H.! x)))
                alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xs)
-    k    = nStates' model
-    w    = transitionDist' model
-    phi' = emissionDistT' model
+    k    = nStates model
+    w    = transitionDist model
+    phi' = emissionDistT model
