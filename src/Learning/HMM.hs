@@ -34,10 +34,24 @@ import qualified Numeric.LinearAlgebra.HMatrix as H (tr)
 import Learning.HMM.Internal (LogLikelihood)
 import qualified Learning.HMM.Internal as I
 
--- | Parameter set of the hidden Markov model. Direct use of the
---   constructor is not recommended. Instead, call 'new' or 'init'.
-data HMM s o = HMM { states  :: [s] -- ^ Hidden states
-                   , outputs :: [o] -- ^ Outputs
+-- | Parameter set of the hidden Markov model with discrete emission.
+--   The model schema is as follows.
+--
+--   @
+--       z_0 -> z_1 -> ... -> z_n
+--        |      |             |
+--        v      v             v
+--       x_0    x_1           x_n
+--   @
+--
+--   Here, @[z_0, z_1, ..., z_n]@ are hidden states and @[x_0, x_1, ..., x_n]@
+--   are observed outputs. @z_0@ is determined by the 'initialStateDist'.
+--   For @i = 1, ..., n@, @z_i@ is determined by the 'transitionDist'
+--   conditioned by @z_{i-1}@.
+--   For @i = 0, ..., n@, @x_i@ is determined by the 'emissionDist'
+--   conditioned by @z_i@.
+data HMM s o = HMM { states  :: [s]
+                   , outputs :: [o]
                    , initialStateDist :: Categorical Double s
                      -- ^ Categorical distribution of initial state
                    , transitionDist :: s -> Categorical Double s
@@ -91,7 +105,7 @@ new ss os = HMM { states           = ss
     phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
           | otherwise   = C.fromList []
 
--- | @init states outputs@ returns a random variable of the model with
+-- | @init states outputs@ returns a random variable of models with the
 --   @states@ and @outputs@, wherein parameters are sampled from uniform
 --   distributions.
 init :: (Eq s, Eq o) => [s] -> [o] -> RVar (HMM s o)
@@ -142,7 +156,7 @@ baumWelch model xs =
     xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
 
 -- | @simulate model t@ generates a Markov process of length @t@ using the
---   @model@, and returns its state path and observed outputs.
+--   @model@, and returns its state path and outputs.
 simulate :: HMM s o -> Int -> RVar ([s], [o])
 simulate model step
   | step < 1  = return ([], [])
