@@ -1,6 +1,10 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.3.0.0
+- Add `Learning.IOHMM` which represents a class of input-output HMM
+- Delete `Learning.HMM.new`
+
 ## Version 0.2.1.0
 - Performance improvements with employing 'hmatrix'
 - `withEmission` now does iterative re-estimation based on the Viterbi path
