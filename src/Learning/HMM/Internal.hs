@@ -8,6 +8,7 @@ module Learning.HMM.Internal (
   -- , baumWelch1
   -- , forward
   -- , backward
+  -- , posterior
   ) where
 
 import Prelude hiding (init)
@@ -107,7 +108,7 @@ withEmission model xs = model'
 -- | Return the Euclidean distance between two models.
 euclideanDistance :: HMM -> HMM -> Double
 euclideanDistance model model' =
-  sqrt $ (H.sumElements $ (w - w') ** 2) + (H.sumElements $ (phi - phi') ** 2)
+  sqrt $ H.sumElements ((w - w') ** 2) + H.sumElements ((phi - phi') ** 2)
   where
     w    = transitionDist model
     w'   = transitionDist model'
