@@ -5,7 +5,8 @@ stability:           experimental
 synopsis:            Yet another library for hidden Markov models
 description:         This library provides functions for the maximum likelihood
                      estimation of discrete hidden Markov models. At present,
-                     only Baum-Welch and Viterbi algorithms are implemented.
+                     only Baum-Welch and Viterbi algorithms are implemented for
+                     the plain HMM and the input-output HMM.
 category:            Algorithms, Machine Learning, Statistics
 
 author:              Mitsuhiro Nakamura
@@ -25,10 +26,12 @@ source-repository head
 
 library
   exposed-modules:   Learning.HMM
+                   , Learning.IOHMM
   other-modules:     Data.Random.Distribution.Categorical.Util
                    , Data.Random.Distribution.Simplex
                    , Data.Vector.Generic.Util
                    , Learning.HMM.Internal
+                   , Learning.IOHMM.Internal
   -- other-extensions:  
   build-depends:     base >=4.7 && <4.8
                    , containers
