@@ -75,7 +75,7 @@ showIOHMM hmm = "IOHMM {inputs = "           ++ show is
                   ++ ", states = "           ++ show ss
                   ++ ", outputs = "          ++ show os
                   ++ ", initialStateDist = " ++ show pi0
-                  ++ ", transitionDist = "   ++ show [(w i s, s) | i <- is, s <- ss]
+                  ++ ", transitionDist = "   ++ show [(w i s, (i, s)) | i <- is, s <- ss]
                   ++ ", emissionDist = "     ++ show [(phi s, s) | s <- ss]
                   ++ "}"
   where
