@@ -1,7 +1,6 @@
 module Learning.HMM (
     HMM (..)
   , LogLikelihood
-  , new
   , init
   , withEmission
   , viterbi
@@ -12,12 +11,12 @@ module Learning.HMM (
 import Prelude hiding (init)
 import Control.Applicative ((<$>))
 import Control.Arrow (first)
-import Data.List (elemIndex, genericLength)
+import Data.List (elemIndex)
 import Data.Maybe (fromJust)
 import Data.Random.Distribution (pdf, rvar)
 import Data.Random.Distribution.Categorical (Categorical)
 import qualified Data.Random.Distribution.Categorical as C (
-    fromList, fromWeightedList, normalizeCategoricalPs
+    fromList, normalizeCategoricalPs
   )
 import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
@@ -78,32 +77,6 @@ showHMM hmm = "HMM {states = "           ++ show ss
     pi0 = initialStateDist hmm
     w   = transitionDist hmm
     phi = emissionDist hmm
-
--- | @new states outputs@ returns a model from the @states@ and @outputs@.
---   The 'initialStateDist' and 'emissionDist' are set to be uniform
---   distributions. The 'transitionDist' is specified as follows: with
---   probability 1/2, move to the same state, otherwise, move to a random
---   state (which might be the same state).
---
---   >>> new [1, 2 :: Int] ['C', 'D']
---   HMM {states = [1,2], outputs = "CD", initialStateDist = fromList [(0.5,1),(0.5,2)], transitionDist = [(fromList [(0.75,1),(0.25,2)],1),(fromList [(0.25,1),(0.75,2)],2)], emissionDist = [(fromList [(0.5,'C'),(0.5,'D')],1),(fromList [(0.5,'C'),(0.5,'D')],2)]}
-new :: (Ord s, Ord o) => [s] -> [o] -> HMM s o
-new ss os = HMM { states           = ss
-                , outputs          = os
-                , initialStateDist = pi0
-                , transitionDist   = w
-                , emissionDist     = phi
-                }
-  where
-    pi0 = C.fromWeightedList [(1, s) | s <- ss]
-    w s | s `elem` ss = C.fromList [(p s', s') | s' <- ss]
-        | otherwise   = C.fromList []
-      where
-        k = genericLength ss
-        p s' | s' == s   = 1/2 * (1 + 1/k)
-             | otherwise = 1/2 / k
-    phi s | s `elem` ss = C.fromWeightedList [(1, o) | o <- os]
-          | otherwise   = C.fromList []
 
 -- | @init states outputs@ returns a random variable of models with the
 --   @states@ and @outputs@, wherein parameters are sampled from uniform
