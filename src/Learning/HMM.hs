@@ -5,6 +5,7 @@ module Learning.HMM (
   , withEmission
   , viterbi
   , baumWelch
+  , baumWelch'
   , simulate
   ) where
 
@@ -121,6 +122,21 @@ baumWelch model xs =
   checkModelIn "baumWelch" model `seq`
   checkDataIn "baumWelch" model xs `seq`
   map (first $ fromInternal ss os) $ I.baumWelch model' xs'
+  where
+    ss     = states model
+    os     = outputs model
+    os'    = V.fromList os
+    model' = toInternal model
+    xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') xs
+
+-- | @baumWelch' model xs@ performs the Baum-Welch algorithm using the
+--   observed outputs @xs@, and returns a model locally maximizing its log
+--   likelihood.
+baumWelch' :: (Eq s, Eq o) => HMM s o -> [o] -> (HMM s o, LogLikelihood)
+baumWelch' model xs =
+  checkModelIn "baumWelch" model `seq`
+  checkDataIn "baumWelch" model xs `seq`
+  first (fromInternal ss os) $ I.baumWelch' model' xs'
   where
     ss     = states model
     os     = outputs model

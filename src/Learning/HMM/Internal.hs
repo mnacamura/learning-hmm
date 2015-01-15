@@ -5,6 +5,7 @@ module Learning.HMM.Internal (
   , withEmission
   , viterbi
   , baumWelch
+  , baumWelch'
   -- , baumWelch1
   -- , forward
   -- , backward
@@ -162,6 +163,14 @@ baumWelch model xs = zip models (tail logLs)
     n = U.length xs
     step (m, _)     = baumWelch1 m n xs
     (models, logLs) = unzip $ iterate step (model, undefined)
+
+baumWelch' :: HMM -> U.Vector Int -> (HMM, LogLikelihood)
+baumWelch' model xs = go (undefined, -1/0) (baumWelch1 model n xs)
+  where
+    n = U.length xs
+    go (m, l) (m', l')
+      | l' - l > 1.0e-9 = go (m', l') (baumWelch1 m' n xs)
+      | otherwise       = (m, l')
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.

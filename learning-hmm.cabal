@@ -1,5 +1,5 @@
 name:                learning-hmm
-version:             0.3.0.1
+version:             0.3.1.0
 stability:           experimental
 
 synopsis:            Yet another library for hidden Markov models

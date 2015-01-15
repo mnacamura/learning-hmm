@@ -5,6 +5,7 @@ module Learning.IOHMM (
   , withEmission
   , viterbi
   , baumWelch
+  , baumWelch'
   , simulate
   ) where
 
@@ -140,6 +141,24 @@ baumWelch model xs ys =
   checkModelIn "baumWelch" model `seq`
   checkDataIn "baumWelch" model xs ys `seq`
   map (first $ fromInternal is ss os) $ I.baumWelch model' $ U.zip xs' ys'
+  where
+    is     = inputs model
+    is'    = V.fromList is
+    ss     = states model
+    os     = outputs model
+    os'    = V.fromList os
+    model' = toInternal model
+    xs'    = U.fromList $ fromJust $ mapM (`V.elemIndex` is') xs
+    ys'    = U.fromList $ fromJust $ mapM (`V.elemIndex` os') ys
+
+-- | @baumWelch' model xs@ performs the Baum-Welch algorithm using the
+--   inputs @xs@ and outputs @ys@, and returns a model locally maximizing
+--   its log likelihood.
+baumWelch' :: (Eq i, Eq s, Eq o) => IOHMM i s o -> [i] -> [o] -> (IOHMM i s o, LogLikelihood)
+baumWelch' model xs ys =
+  checkModelIn "baumWelch" model `seq`
+  checkDataIn "baumWelch" model xs ys `seq`
+  first (fromInternal is ss os) $ I.baumWelch' model' $ U.zip xs' ys'
   where
     is     = inputs model
     is'    = V.fromList is
