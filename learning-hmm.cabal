@@ -11,7 +11,7 @@ category:            Algorithms, Machine Learning, Statistics
 
 author:              Mitsuhiro Nakamura
 maintainer:          Mitsuhiro Nakamura <m.nacamura@gmail.com>
-copyright:           Copyright (c) 2014 Mitsuhiro Nakamura
+copyright:           Copyright (c) 2014-2015 Mitsuhiro Nakamura
 license:             MIT
 license-file:        LICENSE
 homepage:            https://github.com/mnacamura/learning-hmm
