@@ -27,9 +27,9 @@ source-repository head
 library
   exposed-modules:   Learning.HMM
                    , Learning.IOHMM
-  other-modules:     Data.Random.Distribution.Categorical.Util
+  other-modules:     Data.Random.Distribution.Extra
                    , Data.Random.Distribution.Simplex
-                   , Data.Vector.Generic.Util
+                   , Data.Vector.Generic.Extra
                    , Learning.HMM.Internal
                    , Learning.IOHMM.Internal
   -- other-extensions:  

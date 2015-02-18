@@ -25,7 +25,7 @@ import qualified Data.Vector as V (
   , zip, zipWith3
   )
 import qualified Data.Vector.Generic as G (convert)
-import qualified Data.Vector.Generic.Util as G (frequencies)
+import qualified Data.Vector.Generic.Extra as G (frequencies)
 import qualified Data.Vector.Mutable as MV (
     unsafeNew, unsafeRead, unsafeWrite
   )

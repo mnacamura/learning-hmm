@@ -14,12 +14,12 @@ import Control.Applicative ((<$>))
 import Control.Arrow (first)
 import Data.List (elemIndex)
 import Data.Maybe (fromJust)
-import Data.Random.Distribution (pdf, rvar)
+import Data.Random.Distribution (rvar)
 import Data.Random.Distribution.Categorical (Categorical)
+import Data.Random.Distribution.Extra (pmf)
 import qualified Data.Random.Distribution.Categorical as C (
     fromList, normalizeCategoricalPs
   )
-import Data.Random.Distribution.Categorical.Util ()
 import Data.Random.RVar (RVar)
 import Data.Random.Sample (sample)
 import qualified Data.Vector as V (
@@ -251,9 +251,9 @@ toInternal hmm = I.IOHMM { I.nInputs          = length is
     pi0_ = C.normalizeCategoricalPs $ initialStateDist hmm
     w_ i = C.normalizeCategoricalPs . (transitionDist hmm) i
     phi_ = C.normalizeCategoricalPs . emissionDist hmm
-    pi0  = H.fromList [pdf pi0_ s | s <- ss]
-    w    = V.fromList $ map (\i -> H.fromLists [[pdf (w_ i s) s' | s' <- ss] | s <- ss]) is
-    phi' = H.fromLists [[pdf (phi_ s) o | s <- ss] | o <- os]
+    pi0  = H.fromList [pmf pi0_ s | s <- ss]
+    w    = V.fromList $ map (\i -> H.fromLists [[pmf (w_ i s) s' | s' <- ss] | s <- ss]) is
+    phi' = H.fromLists [[pmf (phi_ s) o | s <- ss] | o <- os]
 
 errorIn :: String -> String -> a
 errorIn fun msg = error $ "Learning.IOHMM." ++ fun ++ ": " ++ msg

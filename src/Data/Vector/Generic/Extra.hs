@@ -1,5 +1,5 @@
--- | Miscellaneous utility functions for "Data.Vector"
-module Data.Vector.Generic.Util (
+-- | Extra functions for "Data.Vector"
+module Data.Vector.Generic.Extra (
     frequencies
   ) where
 
