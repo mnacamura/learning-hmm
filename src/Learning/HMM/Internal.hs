@@ -1,5 +1,7 @@
-module Learning.HMM.Internal (
-    HMM (..)
+{-# LANGUAGE RecordWildCards #-}
+
+module Learning.HMM.Internal
+  ( HMM (..)
   , LogLikelihood
   , init
   , withEmission
@@ -12,37 +14,22 @@ module Learning.HMM.Internal (
   -- , posterior
   ) where
 
-import Prelude hiding (init)
-import Control.Applicative ((<$>))
-import Control.DeepSeq (NFData, force, rnf)
-import Control.Monad (forM_, replicateM)
-import Control.Monad.ST (runST)
-import qualified Data.Map.Strict as M (findWithDefault)
-import Data.Random.RVar (RVar)
-import Data.Random.Distribution.Simplex (stdSimplex)
-import qualified Data.Vector as V (
-    Vector, filter, foldl1', map, unsafeFreeze, unsafeIndex, unsafeTail
-  , zip, zipWith3
-  )
-import qualified Data.Vector.Generic as G (convert)
-import qualified Data.Vector.Generic.Extra as G (frequencies)
-import qualified Data.Vector.Mutable as MV (
-    unsafeNew, unsafeRead, unsafeWrite
-  )
-import qualified Data.Vector.Unboxed as U (
-    Vector, fromList, length, map, sum, unsafeFreeze, unsafeIndex
-  , unsafeTail, zip
-  )
-import qualified Data.Vector.Unboxed.Mutable as MU (
-    unsafeNew, unsafeRead, unsafeWrite
-  )
-import qualified Numeric.LinearAlgebra.Data as H (
-    (!), Matrix, Vector, diag, fromColumns, fromList, fromLists
-  , fromRows, konst, maxElement, maxIndex, toColumns, tr
-  )
-import qualified Numeric.LinearAlgebra.HMatrix as H (
-    (<>), (#>), sumElements
-  )
+import           Control.Applicative                     ( (<$>) )
+import           Control.DeepSeq                         ( NFData, force, rnf )
+import           Control.Monad                           ( forM_, replicateM )
+import           Control.Monad.ST                        ( runST )
+import qualified Data.Map.Strict                  as M   ( findWithDefault )
+import           Data.Random.Distribution.Simplex        ( stdSimplex )
+import           Data.Random.RVar                        ( RVar )
+import qualified Data.Vector                      as V   ( Vector, filter, foldl1', map, unsafeFreeze, unsafeIndex, unsafeTail, zip, zipWith3 )
+import qualified Data.Vector.Generic              as G   ( convert )
+import qualified Data.Vector.Generic.Extra        as G   ( frequencies )
+import qualified Data.Vector.Mutable              as MV  ( unsafeNew, unsafeRead, unsafeWrite )
+import qualified Data.Vector.Unboxed              as U   ( Vector, fromList, length, map, sum, unsafeFreeze, unsafeIndex, unsafeTail, zip )
+import qualified Data.Vector.Unboxed.Mutable      as MU  ( unsafeNew, unsafeRead, unsafeWrite )
+import qualified Numeric.LinearAlgebra.Data       as H   ( (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows, konst, maxElement, maxIndex, toColumns, tr )
+import qualified Numeric.LinearAlgebra.HMatrix    as H   ( (<>), (#>), sumElements )
+import           Prelude                          hiding ( init )
 
 type LogLikelihood = Double
 
@@ -59,13 +46,11 @@ data HMM = HMM { nStates          :: Int -- ^ Number of states
                }
 
 instance NFData HMM where
-  rnf hmm = rnf k `seq` rnf l `seq` rnf pi0 `seq` rnf w `seq` rnf phi'
-    where
-      k    = nStates hmm
-      l    = nOutputs hmm
-      pi0  = initialStateDist hmm
-      w    = transitionDist hmm
-      phi' = emissionDistT hmm
+    rnf HMM {..} = rnf nStates `seq`
+                   rnf nOutputs `seq`
+                   rnf initialStateDist `seq`
+                   rnf transitionDist `seq`
+                   rnf emissionDistT
 
 init :: Int -> Int -> RVar HMM
 init k l = do
@@ -80,13 +65,11 @@ init k l = do
              }
 
 withEmission :: HMM -> U.Vector Int -> HMM
-withEmission model xs = model'
+withEmission (model @ HMM {..}) xs = model'
   where
-    n = U.length xs
-    k = nStates model
-    l = nOutputs model
-    ss = [0..(k-1)]
-    os = [0..(l-1)]
+    n  = U.length xs
+    ss = [0..(nStates - 1)]
+    os = [0..(nOutputs - 1)]
 
     step m = fst $ baumWelch1 (m { emissionDistT = H.tr phi }) n xs
       where
@@ -96,9 +79,9 @@ withEmission model xs = model'
                   hs  = H.fromLists $ map (\s -> map (\o ->
                           M.findWithDefault 0 (s, o) fs) os) ss
                   -- hs' is needed to not yield NaN vectors
-                  hs' = hs + H.konst 1e-9 (k, l)
-                  ns  = hs' H.#> H.konst 1 k
-              in hs' / H.fromColumns (replicate l ns)
+                  hs' = hs + H.konst 1e-9 (nStates, nOutputs)
+                  ns  = hs' H.#> H.konst 1 nStates
+              in hs' / H.fromColumns (replicate nOutputs ns)
 
     ms  = iterate step model
     ms' = tail ms
@@ -117,7 +100,7 @@ euclideanDistance model model' =
     phi' = emissionDistT model'
 
 viterbi :: HMM -> U.Vector Int -> (U.Vector Int, LogLikelihood)
-viterbi model xs = (path, logL)
+viterbi HMM {..} xs = (path, logL)
   where
     n = U.length xs
 
@@ -129,20 +112,18 @@ viterbi model xs = (path, logL)
       ds <- MV.unsafeNew n
       ps <- MV.unsafeNew n
       let x0 = U.unsafeIndex xs 0
-      MV.unsafeWrite ds 0 $ log (phi' H.! x0) + log pi0
+      MV.unsafeWrite ds 0 $ log (emissionDistT H.! x0) + log initialStateDist
       forM_ [1..(n-1)] $ \t -> do
         d <- MV.unsafeRead ds (t-1)
         let x   = U.unsafeIndex xs t
             dws = map (\wj -> d + log wj) w'
-        MV.unsafeWrite ds t $ log (phi' H.! x) + H.fromList (map H.maxElement dws)
+        MV.unsafeWrite ds t $ log (emissionDistT H.! x) + H.fromList (map H.maxElement dws)
         MV.unsafeWrite ps t $ U.fromList (map H.maxIndex dws)
       ds' <- V.unsafeFreeze ds
       ps' <- V.unsafeFreeze ps
       return (ds', ps')
       where
-        pi0  = initialStateDist model
-        w'   = H.toColumns $ transitionDist model
-        phi' = emissionDistT model
+        w' = H.toColumns transitionDist
 
     deltaE = V.unsafeIndex deltas (n-1)
 
@@ -175,11 +156,8 @@ baumWelch' model xs = go (undefined, -1/0) (baumWelch1 model n xs)
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.
 baumWelch1 :: HMM -> Int -> U.Vector Int -> (HMM, LogLikelihood)
-baumWelch1 model n xs = force (model', logL)
+baumWelch1 (model @ HMM {..}) n xs = force (model', logL)
   where
-    k = nStates model
-    l = nOutputs model
-
     -- First, we calculate the alpha, beta, and scaling values using the
     -- forward-backward algorithm.
     (alphas, cs) = forward model n xs
@@ -193,13 +171,13 @@ baumWelch1 model n xs = force (model', logL)
     -- probability vector, transition probability matrix, and emission
     -- probability matrix.
     pi0  = V.unsafeIndex gammas 0
-    w    = let ds = V.foldl1' (+) xis   -- denominators
-               ns = ds H.#> H.konst 1 k -- numerators
-           in H.diag (H.konst 1 k / ns) H.<> ds
+    w    = let ds = V.foldl1' (+) xis         -- denominators
+               ns = ds H.#> H.konst 1 nStates -- numerators
+           in H.diag (H.konst 1 nStates / ns) H.<> ds
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert xs) gammas
                ds    = V.foldl1' (+) . gs'  -- denominators
                ns    = V.foldl1' (+) gammas -- numerators
-           in H.fromRows $ map (\o -> ds o / ns) [0..(l-1)]
+           in H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
 
     -- We finally obtain the new model and the likelihood for the old model.
     model' = model { initialStateDist = pi0
@@ -211,59 +189,49 @@ baumWelch1 model n xs = force (model', logL)
 -- | Return alphas and scaling variables.
 forward :: HMM -> Int -> U.Vector Int -> (V.Vector (H.Vector Double), U.Vector Double)
 {-# INLINE forward #-}
-forward model n xs = runST $ do
+forward HMM {..} n xs = runST $ do
   as <- MV.unsafeNew n
   cs <- MU.unsafeNew n
   let x0 = U.unsafeIndex xs 0
-      a0 = (phi' H.! x0) * pi0
+      a0 = (emissionDistT H.! x0) * initialStateDist
       c0 = 1 / H.sumElements a0
-  MV.unsafeWrite as 0 (H.konst c0 k * a0)
+  MV.unsafeWrite as 0 (H.konst c0 nStates * a0)
   MU.unsafeWrite cs 0 c0
   forM_ [1..(n-1)] $ \t -> do
     a <- MV.unsafeRead as (t-1)
     let x  = U.unsafeIndex xs t
-        a' = (phi' H.! x) * (w' H.#> a)
+        a' = (emissionDistT H.! x) * (w' H.#> a)
         c' = 1 / H.sumElements a'
-    MV.unsafeWrite as t (H.konst c' k * a')
+    MV.unsafeWrite as t (H.konst c' nStates * a')
     MU.unsafeWrite cs t c'
   as' <- V.unsafeFreeze as
   cs' <- U.unsafeFreeze cs
   return (as', cs')
   where
-    k    = nStates model
-    pi0  = initialStateDist model
-    w'   = H.tr $ transitionDist model
-    phi' = emissionDistT model
+    w' = H.tr transitionDist
 
 -- | Return betas using scaling variables.
 backward :: HMM -> Int -> U.Vector Int -> U.Vector Double -> V.Vector (H.Vector Double)
 {-# INLINE backward #-}
-backward model n xs cs = runST $ do
+backward HMM {..} n xs cs = runST $ do
   bs <- MV.unsafeNew n
-  let bE = H.konst 1 k
+  let bE = H.konst 1 nStates
       cE = U.unsafeIndex cs (n-1)
-  MV.unsafeWrite bs (n-1) (H.konst cE k * bE)
+  MV.unsafeWrite bs (n-1) (H.konst cE nStates * bE)
   forM_ [n-l | l <- [1..(n-1)]] $ \t -> do
     b <- MV.unsafeRead bs t
     let x  = U.unsafeIndex xs t
-        b' = w H.#> ((phi' H.! x) * b)
+        b' = transitionDist H.#> ((emissionDistT H.! x) * b)
         c' = U.unsafeIndex cs (t-1)
-    MV.unsafeWrite bs (t-1) (H.konst c' k * b')
+    MV.unsafeWrite bs (t-1) (H.konst c' nStates * b')
   V.unsafeFreeze bs
-  where
-    k    = nStates model
-    w    = transitionDist model
-    phi' = emissionDistT model
 
 -- | Return the posterior distribution.
 posterior :: HMM -> Int -> U.Vector Int -> V.Vector (H.Vector Double) -> V.Vector (H.Vector Double) -> U.Vector Double -> (V.Vector (H.Vector Double), V.Vector (H.Matrix Double))
 {-# INLINE posterior #-}
-posterior model _ xs alphas betas cs = (gammas, xis)
+posterior HMM {..} _ xs alphas betas cs = (gammas, xis)
   where
-    gammas = V.zipWith3 (\a b c -> a * b / H.konst c k)
+    gammas = V.zipWith3 (\a b c -> a * b / H.konst c nStates)
                alphas betas (G.convert cs)
-    xis    = V.zipWith3 (\a b x -> H.diag a H.<> w H.<> H.diag (b * (phi' H.! x)))
+    xis    = V.zipWith3 (\a b x -> H.diag a H.<> transitionDist H.<> H.diag (b * (emissionDistT H.! x)))
                alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xs)
-    k    = nStates model
-    w    = transitionDist model
-    phi' = emissionDistT model
