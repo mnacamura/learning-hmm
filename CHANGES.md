@@ -1,6 +1,9 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.3.1.1
+- Bug fix release
+
 ## Version 0.3.1.0
 - Add function `baumWelch'` that performs the Baum-Welch algorithm and returns
   a result locally maximizing its likelihood. This behaviour is different from
