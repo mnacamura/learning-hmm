@@ -19,7 +19,6 @@ import           Data.Random.Distribution                    ( rvar )
 import qualified Data.Random.Distribution.Categorical as C   ( Categorical, fromList, normalizeCategoricalPs )
 import           Data.Random.Distribution.Extra              ( pmf )
 import           Data.Random.RVar                            ( RVar )
-import           Data.Random.Sample                          ( sample )
 import qualified Data.Vector                          as V   ( elemIndex, fromList, map, toList, unsafeIndex )
 import qualified Data.Vector.Generic                  as G   ( convert )
 import qualified Data.Vector.Unboxed                  as U   ( fromList )
@@ -129,13 +128,13 @@ baumWelch' (model @ HMM {..}) xs =
 simulate :: HMM s o -> Int -> RVar ([s], [o])
 simulate HMM {..} step
   | step < 1  = return ([], [])
-  | otherwise = do s0 <- sample $ rvar initialStateDist
-                   x0 <- sample $ rvar $ emissionDist s0
+  | otherwise = do s0 <- rvar initialStateDist
+                   x0 <- rvar $ emissionDist s0
                    unzip . ((s0, x0) :) <$> sim s0 (step - 1)
   where
     sim _ 0 = return []
-    sim s t = do s' <- sample $ rvar $ transitionDist s
-                 x' <- sample $ rvar $ emissionDist s'
+    sim s t = do s' <- rvar $ transitionDist s
+                 x' <- rvar $ emissionDist s'
                  ((s', x') :) <$> sim s' (t - 1)
 
 -- | Check if the model is valid in the sense of whether the 'states' and
