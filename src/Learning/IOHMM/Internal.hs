@@ -152,12 +152,12 @@ baumWelch model xys = zip models (tail logLs)
     (models, logLs) = unzip $ iterate step (model, undefined)
 
 baumWelch' :: IOHMM -> U.Vector (Int, Int) -> (IOHMM, LogLikelihood)
-baumWelch' model xys = go (undefined, -1/0) (baumWelch1 model n xys)
+baumWelch' model xys = go (10000 :: Int) (undefined, -1/0) (baumWelch1 model n xys)
   where
     n = U.length xys
-    go (m, l) (m', l')
-      | l' - l > 1.0e-9 = go (m', l') (baumWelch1 m' n xys)
-      | otherwise       = (m, l')
+    go k (m, l) (m', l')
+      | k > 0 && l' - l > 1.0e-9 = go (k - 1) (m', l') (baumWelch1 m' n xys)
+      | otherwise                = (m, l')
 
 -- | Perform one step of the Baum-Welch algorithm and return the updated
 --   model and the likelihood of the old model.
