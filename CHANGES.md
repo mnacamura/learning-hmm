@@ -1,6 +1,9 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.3.1.2
+- Default the limit of Baum-Welch iteration to 10000 (in `baumWelch'`)
+
 ## Version 0.3.1.1
 - Bug fix release
 
