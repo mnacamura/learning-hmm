@@ -1,6 +1,10 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.3.2.0
+- Add function `euclideanDistance` which measures the Euclidean distance between
+  two models
+
 ## Version 0.3.1.3
 - Bug fix release
 
