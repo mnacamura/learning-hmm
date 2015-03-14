@@ -5,6 +5,7 @@ module Learning.IOHMM
   , LogLikelihood
   , init
   , withEmission
+  , euclideanDistance
   , viterbi
   , baumWelch
   , baumWelch'
@@ -93,6 +94,16 @@ withEmission (model @ IOHMM {..}) xs ys = fromInternal inputs states outputs $ I
     xs'      = U.fromList $ fromJust $ mapM (`V.elemIndex` inputs') xs
     ys'      = U.fromList $ fromJust $ mapM (`V.elemIndex` outputs') ys
 
+-- | Return the Euclidean distance between two models that have the same
+--   inputs, states, and outputs.
+euclideanDistance :: (Eq i, Eq s, Eq o) => IOHMM i s o -> IOHMM i s o -> Double
+euclideanDistance model1 model2 =
+  checkTwoModelsIn "euclideanDistance" model1 model2 `seq`
+  I.euclideanDistance model1' model2'
+  where
+    model1' = toInternal model1
+    model2' = toInternal model2
+
 -- | @viterbi model xs ys@ performs the Viterbi algorithm using the inputs
 --   @xs@ and outputs @ys@, and returns the most likely state path and its
 --   log likelihood.
@@ -167,6 +178,21 @@ checkModelIn fun IOHMM {..}
   | null states  = errorIn fun "empty states"
   | null outputs = errorIn fun "empty outputs"
   | otherwise    = ()
+
+-- | Check if the two models have the same inputs, states, and outputs.
+checkTwoModelsIn :: (Eq i, Eq s, Eq o) => String -> IOHMM i s o -> IOHMM i s o -> ()
+checkTwoModelsIn fun model model'
+  | is /= is' = errorIn fun "inputs disagree"
+  | ss /= ss' = errorIn fun "states disagree"
+  | os /= os' = errorIn fun "outputs disagree"
+  | otherwise = ()
+  where
+    is  = inputs model
+    is' = inputs model'
+    ss  = states model
+    ss' = states model'
+    os  = outputs model
+    os' = outputs model'
 
 -- | Check if all the elements of the given inputs (outputs) are contained
 --   in the 'inputs' ('outputs') of the model.

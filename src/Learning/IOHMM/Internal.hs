@@ -5,6 +5,7 @@ module Learning.IOHMM.Internal
   , LogLikelihood
   , init
   , withEmission
+  , euclideanDistance
   , viterbi
   , baumWelch
   , baumWelch'
@@ -93,7 +94,6 @@ withEmission (model @ IOHMM {..}) xys = model'
 
     model' = fst $ head $ dropWhile ((> 1e-9) . snd) $ zip ms' ds
 
--- | Return the Euclidean distance between two models.
 euclideanDistance :: IOHMM -> IOHMM -> Double
 euclideanDistance model model' =
   sqrt $ sum $ H.sumElements ((phi - phi') ** 2) :

@@ -5,6 +5,7 @@ module Learning.HMM.Internal
   , LogLikelihood
   , init
   , withEmission
+  , euclideanDistance
   , viterbi
   , baumWelch
   , baumWelch'
@@ -89,7 +90,6 @@ withEmission (model @ HMM {..}) xs = model'
 
     model' = fst $ head $ dropWhile ((> 1e-9) . snd) $ zip ms' ds
 
--- | Return the Euclidean distance between two models.
 euclideanDistance :: HMM -> HMM -> Double
 euclideanDistance model model' =
   sqrt $ H.sumElements ((w - w') ** 2) + H.sumElements ((phi - phi') ** 2)

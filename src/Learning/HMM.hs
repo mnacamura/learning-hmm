@@ -5,6 +5,7 @@ module Learning.HMM
   , LogLikelihood
   , init
   , withEmission
+  , euclideanDistance
   , viterbi
   , baumWelch
   , baumWelch'
@@ -82,6 +83,16 @@ withEmission (model @ HMM {..}) xs = fromInternal states outputs $ I.withEmissio
     model'   = toInternal model
     xs'      = U.fromList $ fromJust $ mapM (`V.elemIndex` outputs') xs
 
+-- | Return the Euclidean distance between two models that have the same
+--   states and outputs.
+euclideanDistance :: (Eq s, Eq o) => HMM s o -> HMM s o -> Double
+euclideanDistance model1 model2 =
+  checkTwoModelsIn "euclideanDistance" model1 model2 `seq`
+  I.euclideanDistance model1' model2'
+  where
+    model1' = toInternal model1
+    model2' = toInternal model2
+
 -- | @viterbi model xs@ performs the Viterbi algorithm using the observed
 --   outputs @xs@, and returns the most likely state path and its log
 --   likelihood.
@@ -144,6 +155,18 @@ checkModelIn fun HMM {..}
   | null states  = errorIn fun "empty states"
   | null outputs = errorIn fun "empty outputs"
   | otherwise    = ()
+
+-- | Check if the two models have the same states and outputs.
+checkTwoModelsIn :: (Eq s, Eq o) => String -> HMM s o -> HMM s o -> ()
+checkTwoModelsIn fun model model'
+  | ss /= ss' = errorIn fun "states disagree"
+  | os /= os' = errorIn fun "outputs disagree"
+  | otherwise = ()
+  where
+    ss  = states model
+    ss' = states model'
+    os  = outputs model
+    os' = outputs model'
 
 -- | Check if all the elements of the observed outputs are contained in the
 --   'outputs' of the model.
