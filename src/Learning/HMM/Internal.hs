@@ -28,7 +28,7 @@ import qualified Data.Vector.Generic.Extra        as G   ( frequencies )
 import qualified Data.Vector.Mutable              as MV  ( unsafeNew, unsafeRead, unsafeWrite )
 import qualified Data.Vector.Unboxed              as U   ( Vector, fromList, length, map, sum, unsafeFreeze, unsafeIndex, unsafeTail, zip )
 import qualified Data.Vector.Unboxed.Mutable      as MU  ( unsafeNew, unsafeRead, unsafeWrite )
-import qualified Numeric.LinearAlgebra.Data       as H   ( (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows, konst, maxElement, maxIndex, toColumns, tr )
+import qualified Numeric.LinearAlgebra.Data       as H   ( (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows, ident, konst, maxElement, maxIndex, toColumns, tr )
 import qualified Numeric.LinearAlgebra.HMatrix    as H   ( (<>), (#>), sumElements )
 import           Prelude                          hiding ( init )
 
@@ -60,10 +60,12 @@ init k l = do
   phi <- H.fromLists <$> replicateM k (stdSimplex (l-1))
   return HMM { nStates          = k
              , nOutputs         = l
-             , initialStateDist = pi0
-             , transitionDist   = w
-             , emissionDistT    = H.tr phi
+             , initialStateDist = q_ H.#> pi0
+             , transitionDist   = w H.<> q_
+             , emissionDistT    = q_ H.<> H.tr phi
              }
+  where
+    q_ = q k -- Error matrix
 
 withEmission :: HMM -> U.Vector Int -> HMM
 withEmission (model @ HMM {..}) xs = model'
@@ -167,17 +169,34 @@ baumWelch1 (model @ HMM {..}) n xs = force (model', logL)
     -- posterior distribution, i.e., gamma and xi values.
     (gammas, xis) = posterior model n xs alphas betas cs
 
+    -- Error matrix
+    q_ = q nStates
+
     -- Using the gamma and xi values, we obtain the optimal initial state
     -- probability vector, transition probability matrix, and emission
     -- probability matrix.
-    pi0  = V.unsafeIndex gammas 0
+    pi0  = let g0  = V.unsafeIndex gammas 0
+               g0_ = g0 / H.konst (H.sumElements g0) nStates
+           in q_ H.#> g0_
     w    = let ds = V.foldl1' (+) xis         -- denominators
                ns = ds H.#> H.konst 1 nStates -- numerators
-           in H.diag (H.konst 1 nStates / ns) H.<> ds
+               w_ = H.diag (H.konst 1 nStates / ns) H.<> ds
+           in w_ H.<> q_
+           {- in H.fromRows $ zipWith3 (\n_ t t0 -> if n_ > eps then t else t0)
+            -                          (H.toList ns)
+            -                          (H.toRows $ w_ H.<> q_)
+            -                          (H.toRows transitionDist)
+            -}
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert xs) gammas
                ds    = V.foldl' (+) (H.konst 0 nStates) . gs'  -- denominators
                ns    = V.foldl1' (+) gammas -- numerators
-           in H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
+               phi_  = H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
+           in q_ H.<> phi_
+           {- in H.fromColumns $ zipWith3 (\n_ e e0 -> if n_ > eps then e else e0)
+            -                             (H.toList ns)
+            -                             (H.toColumns $ q_ H.<> phi_)
+            -                             (H.toColumns emissionDistT)
+            -}
 
     -- We finally obtain the new model and the likelihood for the old model.
     model' = model { initialStateDist = pi0
@@ -235,3 +254,26 @@ posterior HMM {..} _ xs alphas betas cs = (gammas, xis)
                alphas betas (G.convert cs)
     xis    = V.zipWith3 (\a b x -> H.diag a H.<> transitionDist H.<> H.diag (b * (emissionDistT H.! x)))
                alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xs)
+
+-- | Global error threshold.
+{-# INLINE eps #-}
+eps :: Double
+eps = 1e-4
+
+-- | Error matrix @q k@ is required to guarantee that the elements of initial
+--   states vector and emission/transition matrix are all larger than zero.
+--   @k@ is assumed to be the number of states. @q k@ is given by
+--       [    1 - eps, (1/k') eps,        ..., (1/k') eps ]
+--       [ (1/k') eps,    1 - eps,        ..., (1/k') eps ]
+--       [                    ...                         ]
+--       [ (1/k') eps,        ..., (1/k') eps,    1 - eps ],
+--   where the diagonal elements are @1 - eps@ and the remains are @(1/k')
+--   eps@. Here @eps@ is a small error value (given by @1e-4@) and
+--   @k' = k - 1@.
+q :: Int -> H.Matrix Double
+{-# INLINE q #-}
+q k = H.konst (1 - eps) (k, k) * e + H.konst (eps / k') (k, k) * (one - e)
+  where
+    e   = H.ident k
+    one = H.konst 1 (k, k)
+    k'  = fromIntegral (k - 1)

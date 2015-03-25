@@ -28,7 +28,7 @@ import qualified Data.Vector.Generic.Extra        as G   ( frequencies )
 import qualified Data.Vector.Mutable              as MV  ( unsafeNew, unsafeRead, unsafeWrite )
 import qualified Data.Vector.Unboxed              as U   ( Vector, fromList, length, map, sum, unsafeFreeze, unsafeIndex, unsafeTail, unzip, zip )
 import qualified Data.Vector.Unboxed.Mutable      as MU  ( unsafeNew, unsafeRead, unsafeWrite )
-import qualified Numeric.LinearAlgebra.Data       as H   ( (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows, konst, maxElement, maxIndex, toColumns, tr )
+import qualified Numeric.LinearAlgebra.Data       as H   ( (!), Matrix, Vector, diag, fromColumns, fromList, fromLists, fromRows, ident, konst, maxElement, maxIndex, toColumns, tr )
 import qualified Numeric.LinearAlgebra.HMatrix    as H   ( (<>), (#>), sumElements )
 import           Prelude                          hiding ( init )
 
@@ -63,10 +63,12 @@ init m k l = do
   return IOHMM { nInputs          = m
                , nStates          = k
                , nOutputs         = l
-               , initialStateDist = pi0
-               , transitionDist   = w
-               , emissionDistT    = H.tr phi
+               , initialStateDist = q_ H.#> pi0
+               , transitionDist   = V.map (H.<> q_) w
+               , emissionDistT    = q_ H.<> H.tr phi
                }
+  where
+    q_ = q k -- Error matrix
 
 withEmission :: IOHMM -> U.Vector (Int, Int) -> IOHMM
 withEmission (model @ IOHMM {..}) xys = model'
@@ -175,18 +177,37 @@ baumWelch1 (model @ IOHMM {..}) n xys = force (model', logL)
     -- posterior distribution, i.e., gamma and xi values.
     (gammas, xis) = posterior model n xys alphas betas cs
 
+    -- Error matrix
+    q_ = q nStates
+
     -- Using the gamma and xi values, we obtain the optimal initial state
     -- probability vector, transition probability matrix, and emission
     -- probability matrix.
-    pi0  = V.unsafeIndex gammas 0
+    -- Each simplex in pi0, w, and phi' remains old if their numerators are
+    -- zero.
+    pi0  = let g0  = V.unsafeIndex gammas 0
+               g0_ = g0 / H.konst (H.sumElements g0) nStates
+           in q_ H.#> g0_
     w    = let xis' i = V.map snd $ V.filter ((== i) . fst) $ V.zip (G.convert $ U.unsafeTail xs) xis
-               ds     = V.foldl1' (+) . xis'  -- denominators
+               ds     = V.foldl1' (+) . xis'        -- denominators
                ns i   = ds i H.#> H.konst 1 nStates -- numerators
-           in V.map (\i -> H.diag (H.konst 1 nStates / ns i) H.<> ds i) (V.generate nInputs id)
+               w_ i   = H.diag (H.konst 1 nStates / ns i) H.<> ds i
+           in flip V.map (V.generate nInputs id) $ \i -> w_ i H.<> q_
+                {- H.fromRows $ zipWith3 (\n_ t t0 -> if n_ > eps then t else t0)
+                 -                       (H.toList $ ns i)
+                 -                       (H.toRows $ w_ i H.<> q_)
+                 -                       (H.toRows $ V.unsafeIndex transitionDist i)
+                 -}
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert ys) gammas
-               ds    = V.foldl' (+) (H.konst 0 nStates) . gs'  -- denominators
-               ns    = V.foldl1' (+) gammas -- numerators
-           in H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
+               ds    = V.foldl' (+) (H.konst 0 nStates) . gs' -- denominators
+               ns    = V.foldl1' (+) gammas                   -- numerators
+               phi_  = H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
+           in q_ H.<> phi_
+           {- in H.fromColumns $ zipWith3 (\n_ e e0 -> if n_ > eps then e else e0)
+            -                             (H.toList ns)
+            -                             (H.toColumns $ q_ H.<> phi_)
+            -                             (H.toColumns emissionDistT)
+            -}
 
     -- We finally obtain the new model and the likelihood for the old model.
     model' = model { initialStateDist = pi0
@@ -247,3 +268,26 @@ posterior IOHMM {..} _ xys alphas betas cs = (gammas, xis)
     xis    = V.zipWith3 (\a b (x, y) -> H.diag a H.<> w x H.<> H.diag (b * (emissionDistT H.! y)))
                alphas (V.unsafeTail betas) (G.convert $ U.unsafeTail xys)
     w = V.unsafeIndex transitionDist
+
+-- | Global error threshold.
+{-# INLINE eps #-}
+eps :: Double
+eps = 1e-4
+
+-- | Error matrix @q k@ is required to guarantee that the elements of initial
+--   states vector and emission/transition matrix are all larger than zero.
+--   @k@ is assumed to be the number of states. @q k@ is given by
+--       [    1 - eps, (1/k') eps,        ..., (1/k') eps ]
+--       [ (1/k') eps,    1 - eps,        ..., (1/k') eps ]
+--       [                    ...                         ]
+--       [ (1/k') eps,        ..., (1/k') eps,    1 - eps ],
+--   where the diagonal elements are @1 - eps@ and the remains are @(1/k')
+--   eps@. Here @eps@ is a small error value (given by @1e-4@) and
+--   @k' = k - 1@.
+q :: Int -> H.Matrix Double
+{-# INLINE q #-}
+q k = H.konst (1 - eps) (k, k) * e + H.konst (eps / k') (k, k) * (one - e)
+  where
+    e   = H.ident k
+    one = H.konst 1 (k, k)
+    k'  = fromIntegral (k - 1)
