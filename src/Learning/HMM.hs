@@ -172,8 +172,8 @@ checkTwoModelsIn fun model model'
 --   'outputs' of the model.
 checkDataIn :: Eq o => String -> HMM s o -> [o] -> ()
 checkDataIn fun HMM {..} xs
-  | all (`elem` outputs) xs = ()
-  | otherwise               = errorIn fun "illegal data"
+  | any (`notElem` outputs) xs = errorIn fun "illegal data"
+  | otherwise                  = ()
 
 -- | Convert internal 'HMM' to 'HMM'.
 fromInternal :: (Eq s, Eq o) => [s] -> [o] -> I.HMM -> HMM s o

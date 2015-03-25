@@ -198,8 +198,10 @@ checkTwoModelsIn fun model model'
 --   in the 'inputs' ('outputs') of the model.
 checkDataIn :: (Eq i, Eq o) => String -> IOHMM i s o -> [i] -> [o] -> ()
 checkDataIn fun IOHMM {..} xs ys
-  | all (`elem` inputs) xs && all (`elem` outputs) ys = ()
-  | otherwise                                         = errorIn fun "illegal data"
+  | any (`notElem` inputs) xs  = errorIn fun "illegal input data"
+  | any (`notElem` outputs) ys = errorIn fun "illegal output data"
+  | any (`notElem` xs) inputs  = errorIn fun "insufficient input data"
+  | otherwise                  = ()
 
 -- | Convert internal 'IOHMM' to 'IOHMM'.
 fromInternal :: (Eq i, Eq s, Eq o) => [i] -> [s] -> [o] -> I.IOHMM -> IOHMM i s o

@@ -184,7 +184,7 @@ baumWelch1 (model @ IOHMM {..}) n xys = force (model', logL)
                ns i   = ds i H.#> H.konst 1 nStates -- numerators
            in V.map (\i -> H.diag (H.konst 1 nStates / ns i) H.<> ds i) (V.generate nInputs id)
     phi' = let gs' o = V.map snd $ V.filter ((== o) . fst) $ V.zip (G.convert ys) gammas
-               ds    = V.foldl' (+) 0 . gs'  -- denominators
+               ds    = V.foldl' (+) (H.konst 0 nStates) . gs'  -- denominators
                ns    = V.foldl1' (+) gammas -- numerators
            in H.fromRows $ map (\o -> ds o / ns) [0..(nOutputs - 1)]
 
