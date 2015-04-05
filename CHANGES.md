@@ -1,6 +1,9 @@
 Revision history for Haskell package learning-hmm
 ===
 
+## Version 0.3.2.2
+- Catch up with base-4.8
+
 ## Version 0.3.2.1
 - Bug fix release
 
