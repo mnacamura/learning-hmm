@@ -33,10 +33,10 @@ library
                    , Learning.HMM.Internal
                    , Learning.IOHMM.Internal
   -- other-extensions:  
-  build-depends:     base >=4.7 && <4.8
+  build-depends:     base >=4.7 && <5
                    , containers
                    , deepseq
-                   , hmatrix < 0.16.1
+                   , hmatrix >= 0.16
                    , random-fu
                    , random-source
                    , vector
